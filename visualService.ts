@@ -1,4 +1,4 @@
-import { EmbedBuilder, Colors } from 'discord.js';
+import { EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { VirusTotalAnalysis } from './virusTotalService';
 
 export function createQuickPreview(url: string): EmbedBuilder {
@@ -145,4 +145,75 @@ export function formatWeatherReport(forecast: any): EmbedBuilder {
     .setFooter({ text: 'Data from National Weather Service' });
 
   return embed;
+}
+
+interface WeatherPeriod {
+  startTime: string;
+  temperature: number;
+  temperatureUnit: string;
+  shortForecast: string;
+  name: string;
+  windSpeed: string;
+  windDirection: string;
+}
+
+export function formatHourlyForecast(forecast: any): EmbedBuilder {
+  const next12Hours = forecast.properties.periods.slice(0, 12);
+  
+  const embed = new EmbedBuilder()
+    .setColor(Colors.Blue)
+    .setTitle('📊 San Francisco Hourly Forecast')
+    .setDescription('Next 12 hours forecast:')
+    .addFields(
+      next12Hours.map((period: WeatherPeriod) => ({
+        name: `${new Date(period.startTime).toLocaleTimeString('en-US', { hour: 'numeric' })}`,
+        value: `${period.temperature}°${period.temperatureUnit} - ${period.shortForecast}`,
+        inline: true
+      }))
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Data from National Weather Service' });
+
+  return embed;
+}
+
+export function formatExtendedForecast(forecast: any): EmbedBuilder {
+  const periods = forecast.properties.periods;
+  
+  const embed = new EmbedBuilder()
+    .setColor(Colors.Blue)
+    .setTitle('📅 San Francisco Extended Forecast')
+    .setDescription('Next 7 days forecast:')
+    .addFields(
+      periods.map((period: WeatherPeriod) => ({
+        name: period.name,
+        value: `${period.temperature}°${period.temperatureUnit} - ${period.shortForecast}\n${period.windSpeed} ${period.windDirection}`,
+        inline: false
+      }))
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Data from National Weather Service' });
+
+  return embed;
+}
+
+export function getWeatherButtons(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('hourly')
+        .setLabel('Hourly Forecast')
+        .setEmoji('⏰')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('extended')
+        .setLabel('7-Day Forecast')
+        .setEmoji('📅')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('refresh')
+        .setLabel('Refresh')
+        .setEmoji('🔄')
+        .setStyle(ButtonStyle.Secondary),
+    );
 } 

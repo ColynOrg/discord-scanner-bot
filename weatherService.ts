@@ -38,6 +38,7 @@ interface WeatherForecast {
 export class WeatherService {
   private readonly baseUrl = 'https://api.weather.gov';
   private readonly userAgent = '(DiscordBot, github.com/ColynOrg/discord-scanner-bot)';
+  private lastPoint: WeatherPoint | null = null;
 
   /**
    * Gets the grid point for a given latitude and longitude
@@ -50,6 +51,7 @@ export class WeatherService {
           'Accept': 'application/geo+json'
         }
       });
+      this.lastPoint = response.data;
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -104,6 +106,48 @@ export class WeatherService {
       return forecast;
     } catch (error) {
       console.error('Error in getSanFranciscoWeather:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gets hourly forecast for San Francisco
+   */
+  async getSanFranciscoHourlyForecast(): Promise<WeatherForecast> {
+    try {
+      if (!this.lastPoint) {
+        await this.getPoint(37.7749, -122.4194);
+      }
+      
+      if (!this.lastPoint) {
+        throw new Error('Failed to get weather point');
+      }
+
+      const forecast = await this.getForecast(this.lastPoint.properties.forecastHourly);
+      return forecast;
+    } catch (error) {
+      console.error('Error in getSanFranciscoHourlyForecast:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gets extended forecast for San Francisco (next 7 days)
+   */
+  async getSanFranciscoExtendedForecast(): Promise<WeatherForecast> {
+    try {
+      if (!this.lastPoint) {
+        await this.getPoint(37.7749, -122.4194);
+      }
+      
+      if (!this.lastPoint) {
+        throw new Error('Failed to get weather point');
+      }
+
+      const forecast = await this.getForecast(this.lastPoint.properties.forecast);
+      return forecast;
+    } catch (error) {
+      console.error('Error in getSanFranciscoExtendedForecast:', error);
       throw error;
     }
   }

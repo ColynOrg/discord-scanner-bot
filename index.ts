@@ -1,7 +1,7 @@
-import { Client, GatewayIntentBits, Events, CommandInteraction, EmbedBuilder, Colors, ChatInputCommandInteraction, REST, Routes } from 'discord.js';
+import { Client, GatewayIntentBits, Events, CommandInteraction, EmbedBuilder, Colors, ChatInputCommandInteraction, REST, Routes, ButtonInteraction } from 'discord.js';
 import { config } from 'dotenv';
 import { VirusTotalService } from './virusTotalService';
-import { createQuickPreview, formatVirusTotalReport, formatWeatherReport } from './visualService';
+import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, getWeatherButtons } from './visualService';
 import { commands } from './commands';
 import { ForumManager } from './forumManager';
 import { WeatherService } from './weatherService';
@@ -47,8 +47,45 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 });
 
-// Register slash commands
+// Register slash commands and button interactions
 client.on(Events.InteractionCreate, async (interaction) => {
+  // Handle button interactions
+  if (interaction.isButton()) {
+    const buttonId = interaction.customId;
+    
+    if (['hourly', 'extended', 'refresh'].includes(buttonId)) {
+      await interaction.deferUpdate();
+      
+      try {
+        switch (buttonId) {
+          case 'hourly': {
+            const forecast = await weatherService.getSanFranciscoHourlyForecast();
+            const embed = formatHourlyForecast(forecast);
+            await interaction.editReply({ embeds: [embed], components: [getWeatherButtons()] });
+            break;
+          }
+          case 'extended': {
+            const forecast = await weatherService.getSanFranciscoExtendedForecast();
+            const embed = formatExtendedForecast(forecast);
+            await interaction.editReply({ embeds: [embed], components: [getWeatherButtons()] });
+            break;
+          }
+          case 'refresh': {
+            const forecast = await weatherService.getSanFranciscoWeather();
+            const embed = formatWeatherReport(forecast);
+            await interaction.editReply({ embeds: [embed], components: [getWeatherButtons()] });
+            break;
+          }
+        }
+      } catch (error) {
+        console.error('Error handling weather button:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        await interaction.editReply({ content: `❌ An error occurred: ${errorMessage}`, components: [] });
+      }
+      return;
+    }
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = interaction.commandName;
@@ -108,7 +145,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     try {
       const forecast = await weatherService.getSanFranciscoWeather();
       const embed = formatWeatherReport(forecast);
-      await interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ 
+        embeds: [embed],
+        components: [getWeatherButtons()]
+      });
     } catch (error) {
       console.error('Error in weather command:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
