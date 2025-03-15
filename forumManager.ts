@@ -71,7 +71,7 @@ export class ForumManager {
       if (content.includes('thanks') || content.includes('thank you') || content.includes('it works')) {
         // Don't suggest if the thread is already marked as solved
         if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-          await message.reply('-# <:tree_corner:1349121251733667921> command suggestion: Use </solved:1350200875062136844> to mark this post as resolved.');
+          await message.reply('-# <:tree_corner:1349121251733667921> Command suggestion: </solved:1350200875062136844>');
         }
       }
     });
@@ -242,7 +242,7 @@ export class ForumManager {
     const embed = new EmbedBuilder()
       .setColor(Colors.Green)
       .setTitle('✅ Post Marked as Solved')
-      .setDescription(`This post has been marked as solved by <@${interaction.user.id}>!\nUse \`/unsolved\` to remove this tag.`)
+      .setDescription(`This post has been marked as solved by <@${interaction.user.id}>!\nUse </unsolved:1350224524825727007> to remove this tag.`)
       .addFields({
         name: '🔒 Auto-close',
         value: `This post will be closed ${time(new Date(closeTime), 'R')} (${time(new Date(closeTime), 'f')}).`
