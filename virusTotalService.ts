@@ -68,14 +68,21 @@ export class VirusTotalService {
       console.log('Step 1: Downloading file...');
       const fileResponse = await fetch(fileUrl);
       if (!fileResponse.ok) {
-        console.error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}`);
-        throw new Error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}`);
+        const error = `Failed to download file (Status ${fileResponse.status}): ${fileResponse.statusText}`;
+        console.error(error);
+        throw new Error(error);
       }
       console.log('File download successful');
 
       console.log('Step 2: Converting file to buffer...');
       const fileBuffer = await fileResponse.buffer();
-      console.log(`File buffer created, size: ${fileBuffer.length} bytes`);
+      const fileSizeMB = fileBuffer.length / (1024 * 1024);
+      console.log(`File buffer created, size: ${fileSizeMB.toFixed(2)} MB`);
+
+      // Check file size limit (32MB)
+      if (fileSizeMB > 32) {
+        throw new Error(`File size (${fileSizeMB.toFixed(2)} MB) exceeds the 32 MB limit`);
+      }
 
       // Get upload URL
       console.log('Step 3: Getting VirusTotal upload URL...');
@@ -90,10 +97,10 @@ export class VirusTotalService {
       );
 
       if (!urlResponse.ok) {
-        console.error(`Failed to get upload URL: ${urlResponse.status} ${urlResponse.statusText}`);
         const errorBody = await urlResponse.text();
-        console.error('Error response body:', errorBody);
-        throw new Error(`Failed to get upload URL: ${urlResponse.status} ${urlResponse.statusText}`);
+        const error = `Failed to get upload URL (Status ${urlResponse.status}): ${errorBody}`;
+        console.error(error);
+        throw new Error(error);
       }
 
       const urlData = await urlResponse.json();
@@ -117,15 +124,16 @@ export class VirusTotalService {
             'x-apikey': this.apiKey,
             ...formData.getHeaders()
           },
-          body: formData
+          body: formData,
+          timeout: 60000 // Increase timeout for large files
         }
       );
 
       if (!uploadResponse.ok) {
-        console.error(`Failed to upload file: ${uploadResponse.status} ${uploadResponse.statusText}`);
         const errorBody = await uploadResponse.text();
-        console.error('Error response body:', errorBody);
-        throw new Error(`Failed to upload file: ${uploadResponse.status} ${uploadResponse.statusText}`);
+        const error = `Failed to upload file (Status ${uploadResponse.status}): ${errorBody}`;
+        console.error(error);
+        throw new Error(error);
       }
 
       console.log('File upload successful');
@@ -135,6 +143,10 @@ export class VirusTotalService {
       const elapsedTime = (Date.now() - startTime) / 1000;
       console.log(`File scan process completed in ${elapsedTime.toFixed(1)} seconds`);
       
+      if (!data?.data?.id) {
+        throw new Error('Invalid response from VirusTotal: Missing analysis ID');
+      }
+
       return data.data.id;
     } catch (error: unknown) {
       const elapsedTime = (Date.now() - startTime) / 1000;

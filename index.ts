@@ -68,6 +68,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
+      const virusTotalService = new VirusTotalService();
       let analysisId: string;
 
       if (url) {
@@ -75,7 +76,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         analysisId = await virusTotalService.scanUrl(url);
       } else if (file) {
         await interaction.editReply('🔍 Downloading and submitting file for scanning...');
-        analysisId = await virusTotalService.scanFile(file.url);
+        try {
+          analysisId = await virusTotalService.scanFile(file.url);
+        } catch (error) {
+          console.error('File scan error:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          await interaction.editReply(`❌ Error scanning file: ${errorMessage}`);
+          return;
+        }
       } else {
         await interaction.editReply('An unexpected error occurred.');
         return;
@@ -117,7 +125,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
       console.error('Error in scan command:', error);
-      await interaction.editReply('An error occurred while scanning. Please try again later.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await interaction.editReply(`❌ An error occurred while scanning: ${errorMessage}`);
     }
   } else {
     const { commandName } = interaction;
