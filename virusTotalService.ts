@@ -1,7 +1,6 @@
 import fetch from 'node-fetch';
 import FormData from 'form-data';
-import { createReadStream } from 'fs';
-import { basename } from 'path';
+import axios from 'axios';
 
 export interface VirusTotalAnalysis {
   data: {
@@ -46,68 +45,33 @@ export class VirusTotalService {
   }
 
   /**
-   * Downloads a file from Discord's CDN and saves it temporarily
+   * Downloads a file from Discord's CDN
    */
   private async downloadFile(url: string): Promise<Buffer> {
     console.log('Downloading file from Discord CDN...');
-    const response = await fetch(url, {
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
       headers: {
         'User-Agent': 'DiscordBot (https://discord.js.org, 1.0.0)'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
-    }
-
-    return await response.buffer();
+    return Buffer.from(response.data);
   }
 
   /**
-   * Gets a special upload URL for large files
+   * Gets a special upload URL for files
    */
   private async getUploadUrl(): Promise<string> {
     console.log('Getting upload URL from VirusTotal...');
-    const response = await fetch(`${this.baseUrl}/files/upload_url`, {
+    const response = await axios.get(`${this.baseUrl}/files/upload_url`, {
       headers: {
-        'x-apikey': this.apiKey
+        'x-apikey': this.apiKey,
+        'accept': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to get upload URL: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.data.url;
-  }
-
-  /**
-   * Uploads a file to VirusTotal
-   */
-  private async uploadFile(fileBuffer: Buffer, uploadUrl: string): Promise<string> {
-    console.log('Uploading file to VirusTotal...');
-    const form = new FormData();
-    form.append('file', fileBuffer, {
-      filename: 'file',
-      contentType: 'application/octet-stream'
-    });
-
-    const response = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        'x-apikey': this.apiKey
-      },
-      body: form
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Failed to upload file: ${response.status} ${response.statusText}\n${text}`);
-    }
-
-    const data = await response.json();
-    return data.data.id;
+    return response.data.data.url;
   }
 
   /**
@@ -115,9 +79,10 @@ export class VirusTotalService {
    */
   async scanFile(fileUrl: string): Promise<string> {
     try {
-      // Step 1: Download the file from Discord
+      // Step 1: Download file from Discord
       const fileBuffer = await this.downloadFile(fileUrl);
-      
+      console.log('File downloaded successfully');
+
       // Step 2: Check file size
       const fileSizeMB = fileBuffer.length / (1024 * 1024);
       console.log(`File size: ${fileSizeMB.toFixed(2)} MB`);
@@ -126,19 +91,47 @@ export class VirusTotalService {
         throw new Error('File size exceeds 32MB limit');
       }
 
-      // Step 3: Get upload URL (always get a fresh URL)
+      // Step 3: Get upload URL
       const uploadUrl = await this.getUploadUrl();
+      console.log('Got upload URL:', uploadUrl);
 
-      // Step 4: Upload the file
-      return await this.uploadFile(fileBuffer, uploadUrl);
+      // Step 4: Upload file
+      console.log('Uploading file to VirusTotal...');
+      const form = new FormData();
+      form.append('file', fileBuffer, {
+        filename: 'file.bin',
+        contentType: 'application/octet-stream'
+      });
+
+      const uploadResponse = await axios.post(uploadUrl, form, {
+        headers: {
+          ...form.getHeaders(),
+          'x-apikey': this.apiKey,
+          'accept': 'application/json'
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+      });
+
+      console.log('Upload successful');
+      return uploadResponse.data.data.id;
+
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data
+        });
+        throw new Error(`File scan failed: ${error.response?.statusText || error.message}`);
+      }
       console.error('Error in scanFile:', error);
       throw error;
     }
   }
 
   /**
-   * Gets the analysis results for a file
+   * Gets the analysis results
    */
   async getAnalysisResults(analysisId: string): Promise<VirusTotalAnalysis> {
     console.log(`Getting analysis results for ID: ${analysisId}`);
@@ -148,25 +141,33 @@ export class VirusTotalService {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       console.log(`Attempt ${attempt}/${maxAttempts}`);
       
-      const response = await fetch(`${this.baseUrl}/analyses/${analysisId}`, {
-        headers: {
-          'x-apikey': this.apiKey
+      try {
+        const response = await axios.get(`${this.baseUrl}/analyses/${analysisId}`, {
+          headers: {
+            'x-apikey': this.apiKey,
+            'accept': 'application/json'
+          }
+        });
+
+        const result = response.data;
+        
+        if (result.data.attributes.status === 'completed') {
+          return result;
         }
-      });
 
-      if (!response.ok) {
-        throw new Error(`Failed to get analysis: ${response.status} ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      
-      if (result.data.attributes.status === 'completed') {
-        return result;
-      }
-
-      if (attempt < maxAttempts) {
-        console.log(`Analysis not ready, waiting ${delaySeconds} seconds...`);
-        await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+        if (attempt < maxAttempts) {
+          console.log(`Analysis not ready, waiting ${delaySeconds} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+        }
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          console.error('Error getting analysis:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data
+          });
+        }
+        throw error;
       }
     }
 
@@ -177,21 +178,31 @@ export class VirusTotalService {
    * Scans a URL
    */
   async scanUrl(url: string): Promise<string> {
-    console.log(`Scanning URL: ${url}`);
-    const response = await fetch(`${this.baseUrl}/urls`, {
-      method: 'POST',
-      headers: {
-        'x-apikey': this.apiKey,
-        'content-type': 'application/x-www-form-urlencoded'
-      },
-      body: `url=${encodeURIComponent(url)}`
-    });
+    try {
+      console.log(`Scanning URL: ${url}`);
+      const response = await axios.post(
+        `${this.baseUrl}/urls`,
+        `url=${encodeURIComponent(url)}`,
+        {
+          headers: {
+            'x-apikey': this.apiKey,
+            'content-type': 'application/x-www-form-urlencoded',
+            'accept': 'application/json'
+          }
+        }
+      );
 
-    if (!response.ok) {
-      throw new Error(`Failed to scan URL: ${response.status} ${response.statusText}`);
+      return response.data.data.id;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('Error scanning URL:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data
+        });
+        throw new Error(`URL scan failed: ${error.response?.statusText || error.message}`);
+      }
+      throw error;
     }
-
-    const data = await response.json();
-    return data.data.id;
   }
 } 
