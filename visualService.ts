@@ -197,24 +197,75 @@ export function formatExtendedForecast(forecast: any): EmbedBuilder {
   return embed;
 }
 
+export function formatWeatherAlerts(alerts: any[]): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(Colors.Orange)
+    .setTitle('⚠️ San Francisco Weather Alerts')
+    .setTimestamp()
+    .setFooter({ text: 'Data from National Weather Service' });
+
+  if (alerts.length === 0) {
+    embed.setDescription('No active weather alerts for San Francisco.');
+    return embed;
+  }
+
+  // Sort alerts by severity
+  const severityOrder = {
+    'Extreme': 0,
+    'Severe': 1,
+    'Moderate': 2,
+    'Minor': 3,
+    'Unknown': 4
+  };
+
+  alerts.sort((a, b) => {
+    const severityA = severityOrder[a.properties.severity as keyof typeof severityOrder] || 4;
+    const severityB = severityOrder[b.properties.severity as keyof typeof severityOrder] || 4;
+    return severityA - severityB;
+  });
+
+  // Add each alert as a field
+  alerts.forEach(alert => {
+    const props = alert.properties;
+    const timeUntilEnd = props.ends ? `Ends: ${new Date(props.ends).toLocaleString()}` : 'No end time specified';
+    
+    let emoji = '⚠️';
+    switch (props.severity.toLowerCase()) {
+      case 'extreme': emoji = '🔴'; break;
+      case 'severe': emoji = '🟡'; break;
+      case 'moderate': emoji = '🟠'; break;
+      case 'minor': emoji = '🟢'; break;
+    }
+
+    embed.addFields({
+      name: `${emoji} ${props.event}`,
+      value: [
+        `**Severity:** ${props.severity}`,
+        `**Status:** ${props.certainty}`,
+        `**${timeUntilEnd}**`,
+        '',
+        props.headline,
+        '',
+        props.instruction ? `**Instructions:** ${props.instruction}` : ''
+      ].filter(Boolean).join('\n'),
+      inline: false
+    });
+  });
+
+  return embed;
+}
+
 export function getWeatherButtons(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>()
     .addComponents(
       new ButtonBuilder()
         .setCustomId('hourly')
         .setLabel('Hourly Forecast')
-        .setEmoji('⏰')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId('extended')
-        .setLabel('7-Day Forecast')
-        .setEmoji('📅')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId('refresh')
-        .setLabel('Refresh')
-        .setEmoji('🔄')
-        .setStyle(ButtonStyle.Secondary),
+        .setLabel('Extended Forecast')
+        .setStyle(ButtonStyle.Primary)
     );
 }
 
@@ -224,12 +275,6 @@ export function getBackButton(): ActionRowBuilder<ButtonBuilder> {
       new ButtonBuilder()
         .setCustomId('back')
         .setLabel('Back to Current Weather')
-        .setEmoji('↩️')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId('refresh')
-        .setLabel('Refresh')
-        .setEmoji('🔄')
-        .setStyle(ButtonStyle.Secondary),
+        .setStyle(ButtonStyle.Secondary)
     );
 } 

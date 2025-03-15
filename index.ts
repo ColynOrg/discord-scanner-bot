@@ -53,7 +53,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isButton()) {
     const buttonId = interaction.customId;
     
-    if (['hourly', 'extended', 'alerts', 'back'].includes(buttonId)) {
+    if (['hourly', 'extended', 'back'].includes(buttonId)) {
       // Check if the user who clicked is the same as the user who ran the command
       const message = interaction.message;
       const originalUserId = message.interaction?.user.id;
@@ -79,12 +79,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           case 'extended': {
             const forecast = await weatherService.getSanFranciscoExtendedForecast();
             const embed = formatExtendedForecast(forecast);
-            await interaction.editReply({ embeds: [embed], components: [getBackButton()] });
-            break;
-          }
-          case 'alerts': {
-            const alerts = await weatherService.getSanFranciscoAlerts();
-            const embed = formatWeatherAlerts(alerts);
             await interaction.editReply({ embeds: [embed], components: [getBackButton()] });
             break;
           }
