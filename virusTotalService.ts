@@ -170,31 +170,6 @@ export class VirusTotalService {
   }
 
   async getAnalysisResults(analysisId: string): Promise<VirusTotalAnalysis> {
-    try {
-      const response = await this.fetchWithTimeout(
-        `${this.baseUrl}/analyses/${analysisId}`,
-        {
-          method: 'GET',
-          headers: {
-            'x-apikey': this.apiKey
-          }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to get analysis results: ${response.status} ${response.statusText}`);
-      }
-
-      return await response.json() as VirusTotalAnalysis;
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        throw error;
-      }
-      throw new Error('Unknown error occurred while getting analysis results');
-    }
-  }
-
-  async pollAnalysisResults(analysisId: string): Promise<VirusTotalScanResult> {
     const maxAttempts = 30; // 5 minutes total with 10-second delay
     const delay = 10000; // 10 seconds between attempts
     let attempts = 0;
@@ -202,7 +177,21 @@ export class VirusTotalService {
 
     while (attempts < maxAttempts) {
       try {
-        const result = await this.getAnalysisResults(analysisId);
+        const response = await this.fetchWithTimeout(
+          `${this.baseUrl}/analyses/${analysisId}`,
+          {
+            method: 'GET',
+            headers: {
+              'x-apikey': this.apiKey
+            }
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to get analysis results: ${response.status} ${response.statusText}`);
+        }
+
+        const result = await response.json() as VirusTotalAnalysis;
         const elapsedTime = (Date.now() - startTime) / 1000;
         const remainingAttempts = maxAttempts - attempts - 1;
 
@@ -210,12 +199,7 @@ export class VirusTotalService {
         console.log(`Elapsed time: ${elapsedTime.toFixed(1)}s, Remaining attempts: ${remainingAttempts}`);
 
         if (result.data.attributes.status === 'completed') {
-          const stats = result.data.attributes.stats;
-          return {
-            malicious: stats.malicious + stats.suspicious,
-            total: stats.harmless + stats.malicious + stats.suspicious + stats.undetected + stats.timeout,
-            status: result.data.attributes.status
-          };
+          return result;
         }
 
         attempts++;

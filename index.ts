@@ -49,155 +49,103 @@ client.once(Events.ClientReady, async (readyClient) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName } = interaction;
+  const command = interaction.commandName;
 
-  try {
-    switch (commandName) {
-      case 'scan':
-        await handleScanCommand(interaction);
-        break;
-      case 'solved':
-        await forumManager.handleSolvedCommand(interaction);
-        break;
-      case 'unsolved':
-        await forumManager.handleUnsolvedCommand(interaction);
-        break;
-    }
-  } catch (error) {
-    console.error(`Error handling command ${commandName}:`, error);
+  if (command === 'scan') {
+    await interaction.deferReply();
+    
     try {
-      const errorMessage = 'An error occurred while processing your command.';
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: errorMessage, ephemeral: true });
-      } else {
-        await interaction.followUp({ content: errorMessage, ephemeral: true });
+      const url = interaction.options.getString('url');
+      const file = interaction.options.getAttachment('file');
+      
+      if (!url && !file) {
+        await interaction.editReply('Please provide either a URL or a file to scan.');
+        return;
       }
-    } catch (replyError) {
-      console.error('Error sending error message:', replyError);
+
+      if (url && file) {
+        await interaction.editReply('Please provide either a URL or a file, not both.');
+        return;
+      }
+
+      let analysisId: string;
+
+      if (url) {
+        await interaction.editReply('🔍 Submitting URL for scanning...');
+        analysisId = await virusTotalService.scanUrl(url);
+      } else if (file) {
+        await interaction.editReply('🔍 Downloading and submitting file for scanning...');
+        analysisId = await virusTotalService.scanFile(file.url);
+      } else {
+        await interaction.editReply('An unexpected error occurred.');
+        return;
+      }
+
+      await interaction.editReply('⏳ Analyzing... This may take a few minutes.');
+      const results = await virusTotalService.getAnalysisResults(analysisId);
+
+      const stats = results.data.attributes.stats;
+      const totalScans = stats.harmless + stats.malicious + stats.suspicious + stats.undetected + stats.timeout;
+      const detectionRate = ((stats.malicious + stats.suspicious) / totalScans * 100).toFixed(1);
+
+      const threatLevel = stats.malicious + stats.suspicious > 0 ? '⚠️ Threats detected' : '✅ No threats detected';
+      const color = stats.malicious + stats.suspicious > 0 ? 0xFF0000 : 0x00FF00;
+
+      const embed = new EmbedBuilder()
+        .setTitle('VirusTotal Scan Results')
+        .setColor(color)
+        .addFields(
+          { name: 'Status', value: threatLevel, inline: false },
+          { name: 'Detection Rate', value: `${detectionRate}% (${stats.malicious + stats.suspicious}/${totalScans})`, inline: true },
+          { name: 'Breakdown', value: [
+            `Malicious: ${stats.malicious}`,
+            `Suspicious: ${stats.suspicious}`,
+            `Clean: ${stats.harmless}`,
+            `Undetected: ${stats.undetected}`,
+            `Timeout: ${stats.timeout}`
+          ].join('\n'), inline: true }
+        )
+        .setTimestamp()
+        .setFooter({ text: 'Powered by VirusTotal' });
+
+      if (url) {
+        embed.setDescription(`Scan results for URL: ${url}`);
+      } else if (file) {
+        embed.setDescription(`Scan results for file: ${file.name}`);
+      }
+
+      await interaction.editReply({ embeds: [embed] });
+    } catch (error) {
+      console.error('Error in scan command:', error);
+      await interaction.editReply('An error occurred while scanning. Please try again later.');
+    }
+  } else {
+    const { commandName } = interaction;
+
+    try {
+      switch (commandName) {
+        case 'solved':
+          await forumManager.handleSolvedCommand(interaction);
+          break;
+        case 'unsolved':
+          await forumManager.handleUnsolvedCommand(interaction);
+          break;
+      }
+    } catch (error) {
+      console.error(`Error handling command ${commandName}:`, error);
+      try {
+        const errorMessage = 'An error occurred while processing your command.';
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: errorMessage, ephemeral: true });
+        } else {
+          await interaction.followUp({ content: errorMessage, ephemeral: true });
+        }
+      } catch (replyError) {
+        console.error('Error sending error message:', replyError);
+      }
     }
   }
 });
-
-async function handleScanCommand(interaction: ChatInputCommandInteraction) {
-  const url = interaction.options.getString('url');
-  const file = interaction.options.getAttachment('file');
-
-  // Check if neither option is provided
-  if (!url && !file) {
-    await interaction.reply({
-      content: 'Please provide either a URL or a file to scan.',
-      ephemeral: true
-    });
-    return;
-  }
-
-  // Check if both options are provided
-  if (url && file) {
-    await interaction.reply({
-      content: 'Please provide either a URL or a file, not both.',
-      ephemeral: true
-    });
-    return;
-  }
-
-  if (url) {
-    // Handle URL scan
-    const reply = await interaction.reply({ 
-      embeds: [createQuickPreview(url)],
-      ephemeral: true,
-      fetchReply: true
-    });
-
-    try {
-      // Create scan
-      const analysisId = await virusTotalService.scanUrl(url);
-      
-      // Poll for results
-      const analysisResult = await virusTotalService.pollAnalysisResults(analysisId);
-      
-      // Update message with full scan report
-      await interaction.editReply({
-        embeds: [formatVirusTotalReport(url, analysisResult)]
-      });
-    } catch (error: any) {
-      console.error('Error during URL scan:', error);
-      
-      // Create error embed
-      const errorEmbed = new EmbedBuilder()
-        .setColor(Colors.Red)
-        .setTitle('❌ URL Scan Error')
-        .setDescription('Failed to scan the URL')
-        .addFields(
-          { name: '🎯 Target URL', value: url },
-          { name: '❌ Error', value: error.message || 'Unknown error occurred' }
-        )
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [errorEmbed] });
-    }
-  } else if (file) {
-    // Handle file scan
-    await interaction.deferReply({ ephemeral: true });
-
-    try {
-      // Create quick preview embed
-      const previewEmbed = new EmbedBuilder()
-        .setColor(Colors.Blue)
-        .setTitle('🔍 Scanning File...')
-        .addFields(
-          { name: 'File Name', value: file.name },
-          { name: 'Size', value: `${Math.round(file.size / 1024)} KB` },
-          { name: 'Status', value: 'Initiating scan...' }
-        )
-        .setTimestamp();
-
-      await interaction.editReply({ embeds: [previewEmbed] });
-
-      // Create file scan
-      const analysisId = await virusTotalService.scanFile(file.url);
-      
-      // Update status
-      previewEmbed.setFields(
-        { name: 'File Name', value: file.name },
-        { name: 'Size', value: `${Math.round(file.size / 1024)} KB` },
-        { name: 'Status', value: 'Analyzing...' }
-      );
-      await interaction.editReply({ embeds: [previewEmbed] });
-
-      // Poll for results
-      const analysisResult = await virusTotalService.pollAnalysisResults(analysisId);
-      
-      // Create final report embed
-      const reportEmbed = new EmbedBuilder()
-        .setColor(analysisResult.malicious > 0 ? Colors.Red : Colors.Green)
-        .setTitle(`${analysisResult.malicious > 0 ? '⚠️' : '✅'} File Scan Results`)
-        .addFields(
-          { name: 'File Name', value: file.name },
-          { name: 'Size', value: `${Math.round(file.size / 1024)} KB` },
-          { name: 'Detection Rate', value: `${analysisResult.malicious}/${analysisResult.total}` },
-          { name: 'Status', value: analysisResult.malicious > 0 ? 'Potentially Malicious' : 'Clean' }
-        )
-        .setTimestamp();
-
-      await interaction.editReply({ embeds: [reportEmbed] });
-    } catch (error: any) {
-      console.error('Error during file scan:', error);
-      
-      // Create error embed
-      const errorEmbed = new EmbedBuilder()
-        .setColor(Colors.Red)
-        .setTitle('❌ File Scan Error')
-        .setDescription('Failed to scan the file')
-        .addFields(
-          { name: '📎 File', value: file.name },
-          { name: '❌ Error', value: error.message || 'Unknown error occurred' }
-        )
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [errorEmbed] });
-    }
-  }
-}
 
 // Log in to Discord with your client's token
 client.login(process.env.DISCORD_TOKEN); 
