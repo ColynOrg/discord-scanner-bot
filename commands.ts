@@ -8,7 +8,7 @@ export const commands = [
       option
         .setName('url')
         .setDescription('The URL to scan')
-        .setRequired(true)
+        .setRequired(false)
     )
     .addAttachmentOption(option =>
       option

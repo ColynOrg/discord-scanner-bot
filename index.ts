@@ -82,6 +82,15 @@ async function handleScanCommand(interaction: ChatInputCommandInteraction) {
   const url = interaction.options.getString('url');
   const file = interaction.options.getAttachment('file');
 
+  // Check if neither option is provided
+  if (!url && !file) {
+    await interaction.reply({
+      content: 'Please provide either a URL or a file to scan.',
+      ephemeral: true
+    });
+    return;
+  }
+
   // Check if both options are provided
   if (url && file) {
     await interaction.reply({
