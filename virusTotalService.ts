@@ -60,19 +60,25 @@ export class VirusTotalService {
   }
 
   async scanFile(fileUrl: string): Promise<string> {
-    console.log(`Scanning file with VirusTotal: ${fileUrl}`);
+    console.log(`Starting file scan process for URL: ${fileUrl}`);
     const startTime = Date.now();
 
     try {
       // First, download the file
+      console.log('Step 1: Downloading file...');
       const fileResponse = await fetch(fileUrl);
       if (!fileResponse.ok) {
-        throw new Error('Failed to download file');
+        console.error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}`);
+        throw new Error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}`);
       }
+      console.log('File download successful');
 
+      console.log('Step 2: Converting file to buffer...');
       const fileBuffer = await fileResponse.buffer();
+      console.log(`File buffer created, size: ${fileBuffer.length} bytes`);
 
       // Get upload URL
+      console.log('Step 3: Getting VirusTotal upload URL...');
       const urlResponse = await this.fetchWithTimeout(
         `${this.baseUrl}/files/upload_url`,
         {
@@ -84,20 +90,27 @@ export class VirusTotalService {
       );
 
       if (!urlResponse.ok) {
+        console.error(`Failed to get upload URL: ${urlResponse.status} ${urlResponse.statusText}`);
+        const errorBody = await urlResponse.text();
+        console.error('Error response body:', errorBody);
         throw new Error(`Failed to get upload URL: ${urlResponse.status} ${urlResponse.statusText}`);
       }
 
-      const { data: { url: uploadUrl } } = await urlResponse.json();
+      const urlData = await urlResponse.json();
+      console.log('Successfully got upload URL');
 
       // Upload file
+      console.log('Step 4: Creating form data...');
       const formData = new FormData();
       formData.append('file', fileBuffer, {
         filename: 'scan_file',
         contentType: 'application/octet-stream'
       });
+      console.log('Form data created');
 
+      console.log('Step 5: Uploading file to VirusTotal...');
       const uploadResponse = await this.fetchWithTimeout(
-        uploadUrl,
+        urlData.data.url,
         {
           method: 'POST',
           headers: {
@@ -109,14 +122,25 @@ export class VirusTotalService {
       );
 
       if (!uploadResponse.ok) {
+        console.error(`Failed to upload file: ${uploadResponse.status} ${uploadResponse.statusText}`);
+        const errorBody = await uploadResponse.text();
+        console.error('Error response body:', errorBody);
         throw new Error(`Failed to upload file: ${uploadResponse.status} ${uploadResponse.statusText}`);
       }
 
+      console.log('File upload successful');
       const data = await uploadResponse.json();
+      console.log('Upload response parsed successfully');
+      
+      const elapsedTime = (Date.now() - startTime) / 1000;
+      console.log(`File scan process completed in ${elapsedTime.toFixed(1)} seconds`);
+      
       return data.data.id;
     } catch (error: unknown) {
-      console.error('Error in scanFile:', error);
+      const elapsedTime = (Date.now() - startTime) / 1000;
+      console.error(`Error in scanFile after ${elapsedTime.toFixed(1)} seconds:`, error);
       if (error instanceof Error) {
+        console.error('Error stack:', error.stack);
         throw error;
       }
       throw new Error('Unknown error occurred while scanning file');
