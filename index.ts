@@ -56,43 +56,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
     
     try {
       const url = interaction.options.getString('url');
-      const file = interaction.options.getAttachment('file');
       
-      if (!url && !file) {
-        await interaction.editReply('Please provide either a URL or a file to scan.');
-        return;
-      }
-
-      if (url && file) {
-        await interaction.editReply('Please provide either a URL or a file, not both.');
+      if (!url) {
+        await interaction.editReply('Please provide a URL to scan.');
         return;
       }
 
       const virusTotalService = new VirusTotalService();
-      let analysisId: string;
-
-      if (url) {
-        await interaction.editReply('🔍 Submitting URL for scanning...');
-        analysisId = await virusTotalService.scanUrl(url);
-      } else if (file) {
-        await interaction.editReply('🔍 Downloading and submitting file for scanning...');
-        try {
-          // Use the absolute proxyURL or attachment URL
-          const fileUrl = file.proxyURL || file.url;
-          if (!fileUrl) {
-            throw new Error('Could not get file URL from attachment');
-          }
-          analysisId = await virusTotalService.scanFile(fileUrl);
-        } catch (error) {
-          console.error('File scan error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          await interaction.editReply(`❌ Error scanning file: ${errorMessage}`);
-          return;
-        }
-      } else {
-        await interaction.editReply('An unexpected error occurred.');
-        return;
-      }
+      await interaction.editReply('🔍 Submitting URL for scanning...');
+      const analysisId = await virusTotalService.scanUrl(url);
 
       await interaction.editReply('⏳ Analyzing... This may take a few minutes.');
       const results = await virusTotalService.getAnalysisResults(analysisId);
@@ -107,6 +79,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const embed = new EmbedBuilder()
         .setTitle('VirusTotal Scan Results')
         .setColor(color)
+        .setDescription(`Scan results for URL: ${url}`)
         .addFields(
           { name: 'Status', value: threatLevel, inline: false },
           { name: 'Detection Rate', value: `${detectionRate}% (${stats.malicious + stats.suspicious}/${totalScans})`, inline: true },
@@ -120,12 +93,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         )
         .setTimestamp()
         .setFooter({ text: 'Powered by VirusTotal' });
-
-      if (url) {
-        embed.setDescription(`Scan results for URL: ${url}`);
-      } else if (file) {
-        embed.setDescription(`Scan results for file: ${file.name}`);
-      }
 
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {

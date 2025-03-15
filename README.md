@@ -1,11 +1,10 @@
 # Discord Scanner Bot
 
-A Discord bot that can scan URLs and files for potential threats using VirusTotal API.
+A Discord bot that can scan URLs for potential threats using VirusTotal API.
 
 ## Features
 
 - `/scan url` - Scan a URL for potential threats using VirusTotal
-- `/scan file` - Scan a file for malware using VirusTotal
 
 ## Setup
 
@@ -30,9 +29,7 @@ npm start
 ## Usage
 
 - To scan a URL: `/scan url [url]`
-- To scan a file: `/scan file [upload a file]`
 
 ## Notes
 
-- Maximum file size for scanning: 32MB
 - Please respect API rate limits 

@@ -3,18 +3,12 @@ import { SlashCommandBuilder } from 'discord.js';
 export const commands = [
   new SlashCommandBuilder()
     .setName('scan')
-    .setDescription('Scan a URL or file for potential threats')
+    .setDescription('Scan a URL for potential threats')
     .addStringOption(option =>
       option
         .setName('url')
         .setDescription('The URL to scan')
-        .setRequired(false)
-    )
-    .addAttachmentOption(option =>
-      option
-        .setName('file')
-        .setDescription('The file to scan')
-        .setRequired(false)
+        .setRequired(true)
     ),
   new SlashCommandBuilder()
     .setName('solved')
