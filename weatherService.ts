@@ -39,6 +39,11 @@ export class WeatherService {
   private readonly baseUrl = 'https://api.weather.gov';
   private readonly userAgent = '(DiscordBot, github.com/ColynOrg/discord-scanner-bot)';
   private lastPoint: WeatherPoint | null = null;
+  private lastForecast: WeatherForecast | null = null;
+  private lastForecastTime: number = 0;
+  private lastHourlyForecast: WeatherForecast | null = null;
+  private lastHourlyForecastTime: number = 0;
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
   /**
    * Gets the grid point for a given latitude and longitude
@@ -97,12 +102,23 @@ export class WeatherService {
    */
   async getSanFranciscoWeather(): Promise<WeatherForecast> {
     try {
+      // Check if we have a cached forecast that's less than 5 minutes old
+      const now = Date.now();
+      if (this.lastForecast && (now - this.lastForecastTime) < this.CACHE_DURATION) {
+        return this.lastForecast;
+      }
+
       // Get the grid point for San Francisco
       const point = await this.getPoint(37.7749, -122.4194);
       console.log('Got weather point:', point.properties.gridId, point.properties.gridX, point.properties.gridY);
 
       // Get the forecast using the URL from the point response
       const forecast = await this.getForecast(point.properties.forecast);
+      
+      // Cache the results
+      this.lastForecast = forecast;
+      this.lastForecastTime = now;
+      
       return forecast;
     } catch (error) {
       console.error('Error in getSanFranciscoWeather:', error);
@@ -115,6 +131,12 @@ export class WeatherService {
    */
   async getSanFranciscoHourlyForecast(): Promise<WeatherForecast> {
     try {
+      // Check if we have a cached hourly forecast that's less than 5 minutes old
+      const now = Date.now();
+      if (this.lastHourlyForecast && (now - this.lastHourlyForecastTime) < this.CACHE_DURATION) {
+        return this.lastHourlyForecast;
+      }
+
       if (!this.lastPoint) {
         await this.getPoint(37.7749, -122.4194);
       }
@@ -124,6 +146,11 @@ export class WeatherService {
       }
 
       const forecast = await this.getForecast(this.lastPoint.properties.forecastHourly);
+      
+      // Cache the results
+      this.lastHourlyForecast = forecast;
+      this.lastHourlyForecastTime = now;
+      
       return forecast;
     } catch (error) {
       console.error('Error in getSanFranciscoHourlyForecast:', error);
@@ -135,20 +162,7 @@ export class WeatherService {
    * Gets extended forecast for San Francisco (next 7 days)
    */
   async getSanFranciscoExtendedForecast(): Promise<WeatherForecast> {
-    try {
-      if (!this.lastPoint) {
-        await this.getPoint(37.7749, -122.4194);
-      }
-      
-      if (!this.lastPoint) {
-        throw new Error('Failed to get weather point');
-      }
-
-      const forecast = await this.getForecast(this.lastPoint.properties.forecast);
-      return forecast;
-    } catch (error) {
-      console.error('Error in getSanFranciscoExtendedForecast:', error);
-      throw error;
-    }
+    // Extended forecast uses the same endpoint as regular forecast
+    return this.getSanFranciscoWeather();
   }
 } 

@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Events, CommandInteraction, EmbedBuilder, Colors, ChatInputCommandInteraction, REST, Routes, ButtonInteraction } from 'discord.js';
 import { config } from 'dotenv';
 import { VirusTotalService } from './virusTotalService';
-import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, getWeatherButtons } from './visualService';
+import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, getWeatherButtons, getBackButton } from './visualService';
 import { commands } from './commands';
 import { ForumManager } from './forumManager';
 import { WeatherService } from './weatherService';
@@ -53,7 +53,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isButton()) {
     const buttonId = interaction.customId;
     
-    if (['hourly', 'extended', 'refresh'].includes(buttonId)) {
+    if (['hourly', 'extended', 'refresh', 'back'].includes(buttonId)) {
       await interaction.deferUpdate();
       
       try {
@@ -61,16 +61,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
           case 'hourly': {
             const forecast = await weatherService.getSanFranciscoHourlyForecast();
             const embed = formatHourlyForecast(forecast);
-            await interaction.editReply({ embeds: [embed], components: [getWeatherButtons()] });
+            await interaction.editReply({ embeds: [embed], components: [getBackButton()] });
             break;
           }
           case 'extended': {
             const forecast = await weatherService.getSanFranciscoExtendedForecast();
             const embed = formatExtendedForecast(forecast);
-            await interaction.editReply({ embeds: [embed], components: [getWeatherButtons()] });
+            await interaction.editReply({ embeds: [embed], components: [getBackButton()] });
             break;
           }
           case 'refresh': {
+            const forecast = await weatherService.getSanFranciscoWeather();
+            const embed = formatWeatherReport(forecast);
+            // Keep the same button layout as the current view
+            const buttons = interaction.message.components[0].components[0].customId === 'back' 
+              ? getBackButton() 
+              : getWeatherButtons();
+            await interaction.editReply({ embeds: [embed], components: [buttons] });
+            break;
+          }
+          case 'back': {
             const forecast = await weatherService.getSanFranciscoWeather();
             const embed = formatWeatherReport(forecast);
             await interaction.editReply({ embeds: [embed], components: [getWeatherButtons()] });

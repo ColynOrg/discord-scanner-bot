@@ -216,4 +216,20 @@ export function getWeatherButtons(): ActionRowBuilder<ButtonBuilder> {
         .setEmoji('🔄')
         .setStyle(ButtonStyle.Secondary),
     );
+}
+
+export function getBackButton(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('back')
+        .setLabel('Back to Current Weather')
+        .setEmoji('↩️')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('refresh')
+        .setLabel('Refresh')
+        .setEmoji('🔄')
+        .setStyle(ButtonStyle.Secondary),
+    );
 } 
