@@ -26,6 +26,12 @@ export interface VirusTotalAnalysis {
   };
 }
 
+export interface VirusTotalScanResult {
+  malicious: number;
+  total: number;
+  status: string;
+}
+
 export class VirusTotalService {
   private readonly baseUrl = 'https://www.virustotal.com/api/v3';
   private readonly apiKey: string;
@@ -49,6 +55,65 @@ export class VirusTotalService {
       return response;
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  async scanFile(fileUrl: string): Promise<string> {
+    console.log(`Scanning file with VirusTotal: ${fileUrl}`);
+    const startTime = Date.now();
+
+    try {
+      // First, download the file
+      const fileResponse = await fetch(fileUrl);
+      if (!fileResponse.ok) {
+        throw new Error('Failed to download file');
+      }
+
+      const fileBuffer = await fileResponse.buffer();
+
+      // Get upload URL
+      const urlResponse = await this.fetchWithTimeout(
+        `${this.baseUrl}/files/upload_url`,
+        {
+          method: 'GET',
+          headers: {
+            'x-apikey': this.apiKey
+          }
+        }
+      );
+
+      if (!urlResponse.ok) {
+        throw new Error(`Failed to get upload URL: ${urlResponse.status} ${urlResponse.statusText}`);
+      }
+
+      const { data: { url: uploadUrl } } = await urlResponse.json();
+
+      // Upload file
+      const formData = new FormData();
+      formData.append('file', new Blob([fileBuffer]));
+
+      const uploadResponse = await this.fetchWithTimeout(
+        uploadUrl,
+        {
+          method: 'POST',
+          headers: {
+            'x-apikey': this.apiKey
+          },
+          body: formData
+        }
+      );
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Failed to upload file: ${uploadResponse.status} ${uploadResponse.statusText}`);
+      }
+
+      const data = await uploadResponse.json();
+      return data.data.id;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error occurred while scanning file');
     }
   }
 
@@ -129,7 +194,7 @@ export class VirusTotalService {
     }
   }
 
-  async pollAnalysisResults(analysisId: string): Promise<VirusTotalAnalysis> {
+  async pollAnalysisResults(analysisId: string): Promise<VirusTotalScanResult> {
     const maxAttempts = 30; // 5 minutes total with 10-second delay
     const delay = 10000; // 10 seconds between attempts
     let attempts = 0;
@@ -145,7 +210,12 @@ export class VirusTotalService {
         console.log(`Elapsed time: ${elapsedTime.toFixed(1)}s, Remaining attempts: ${remainingAttempts}`);
 
         if (result.data.attributes.status === 'completed') {
-          return result;
+          const stats = result.data.attributes.stats;
+          return {
+            malicious: stats.malicious + stats.suspicious,
+            total: stats.harmless + stats.malicious + stats.suspicious + stats.undetected + stats.timeout,
+            status: result.data.attributes.status
+          };
         }
 
         attempts++;

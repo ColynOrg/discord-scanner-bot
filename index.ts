@@ -136,11 +136,66 @@ async function handleScanCommand(interaction: ChatInputCommandInteraction) {
       await interaction.editReply({ embeds: [errorEmbed] });
     }
   } else if (file) {
-    // Handle file scan (placeholder for now)
-    await interaction.reply({
-      content: 'File scanning will be implemented soon.',
-      ephemeral: true
-    });
+    // Handle file scan
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      // Create quick preview embed
+      const previewEmbed = new EmbedBuilder()
+        .setColor(Colors.Blue)
+        .setTitle('🔍 Scanning File...')
+        .addFields(
+          { name: 'File Name', value: file.name },
+          { name: 'Size', value: `${Math.round(file.size / 1024)} KB` },
+          { name: 'Status', value: 'Initiating scan...' }
+        )
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [previewEmbed] });
+
+      // Create file scan
+      const analysisId = await virusTotalService.scanFile(file.url);
+      
+      // Update status
+      previewEmbed.setFields(
+        { name: 'File Name', value: file.name },
+        { name: 'Size', value: `${Math.round(file.size / 1024)} KB` },
+        { name: 'Status', value: 'Analyzing...' }
+      );
+      await interaction.editReply({ embeds: [previewEmbed] });
+
+      // Poll for results
+      const analysisResult = await virusTotalService.pollAnalysisResults(analysisId);
+      
+      // Create final report embed
+      const reportEmbed = new EmbedBuilder()
+        .setColor(analysisResult.malicious > 0 ? Colors.Red : Colors.Green)
+        .setTitle(`${analysisResult.malicious > 0 ? '⚠️' : '✅'} File Scan Results`)
+        .addFields(
+          { name: 'File Name', value: file.name },
+          { name: 'Size', value: `${Math.round(file.size / 1024)} KB` },
+          { name: 'Detection Rate', value: `${analysisResult.malicious}/${analysisResult.total}` },
+          { name: 'Status', value: analysisResult.malicious > 0 ? 'Potentially Malicious' : 'Clean' }
+        )
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [reportEmbed] });
+    } catch (error: any) {
+      console.error('Error during file scan:', error);
+      
+      // Create error embed
+      const errorEmbed = new EmbedBuilder()
+        .setColor(Colors.Red)
+        .setTitle('❌ File Scan Error')
+        .setDescription('Failed to scan the file')
+        .addFields(
+          { name: '📎 File', value: file.name },
+          { name: '❌ Error', value: error.message || 'Unknown error occurred' }
+        )
+        .setTimestamp();
+      
+      await interaction.editReply({ embeds: [errorEmbed] });
+    }
   }
 }
 
