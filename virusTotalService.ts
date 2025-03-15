@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import axios from 'axios';
+import { Readable } from 'stream';
 
 export interface VirusTotalAnalysis {
   data: {
@@ -98,14 +99,24 @@ export class VirusTotalService {
       // Step 4: Upload file
       console.log('Uploading file to VirusTotal...');
       const form = new FormData();
-      form.append('file', fileBuffer, {
-        filename: 'file.bin',
-        contentType: 'application/octet-stream'
+      
+      // Convert buffer to readable stream
+      const stream = new Readable();
+      stream.push(fileBuffer);
+      stream.push(null);
+
+      form.append('file', stream, {
+        filename: 'scan_file',
+        contentType: 'application/octet-stream',
+        knownLength: fileBuffer.length
       });
+
+      const formHeaders = form.getHeaders();
+      console.log('Form headers:', formHeaders);
 
       const uploadResponse = await axios.post(uploadUrl, form, {
         headers: {
-          ...form.getHeaders(),
+          ...formHeaders,
           'x-apikey': this.apiKey,
           'accept': 'application/json'
         },
@@ -121,7 +132,8 @@ export class VirusTotalService {
         console.error('Axios error:', {
           status: error.response?.status,
           statusText: error.response?.statusText,
-          data: error.response?.data
+          data: error.response?.data,
+          headers: error.response?.headers
         });
         throw new Error(`File scan failed: ${error.response?.statusText || error.message}`);
       }
