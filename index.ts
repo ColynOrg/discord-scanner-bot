@@ -1,9 +1,10 @@
 import { Client, GatewayIntentBits, Events, CommandInteraction, EmbedBuilder, Colors, ChatInputCommandInteraction, REST, Routes } from 'discord.js';
 import { config } from 'dotenv';
 import { VirusTotalService } from './virusTotalService';
-import { createQuickPreview, formatVirusTotalReport } from './visualService';
+import { createQuickPreview, formatVirusTotalReport, formatWeatherReport } from './visualService';
 import { commands } from './commands';
 import { ForumManager } from './forumManager';
+import { WeatherService } from './weatherService';
 
 // Load environment variables
 config();
@@ -19,6 +20,7 @@ const client = new Client({
 
 // Initialize services
 const virusTotalService = new VirusTotalService();
+const weatherService = new WeatherService();
 let forumManager: ForumManager;
 
 // When the client is ready, run this code (only once)
@@ -99,6 +101,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.error('Error in scan command:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       await interaction.editReply(`❌ An error occurred while scanning: ${errorMessage}`);
+    }
+  } else if (command === 'weather') {
+    await interaction.deferReply();
+    
+    try {
+      const forecast = await weatherService.getSanFranciscoWeather();
+      const embed = formatWeatherReport(forecast);
+      await interaction.editReply({ embeds: [embed] });
+    } catch (error) {
+      console.error('Error in weather command:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await interaction.editReply(`❌ An error occurred while getting weather: ${errorMessage}`);
     }
   } else {
     const { commandName } = interaction;

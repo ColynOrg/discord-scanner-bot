@@ -11,6 +11,9 @@ export const commands = [
         .setRequired(true)
     ),
   new SlashCommandBuilder()
+    .setName('weather')
+    .setDescription('Get the current weather for San Francisco'),
+  new SlashCommandBuilder()
     .setName('solved')
     .setDescription('Mark a forum post as solved'),
   new SlashCommandBuilder()

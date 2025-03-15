@@ -84,4 +84,65 @@ export function formatVirusTotalReport(url: string, analysis: VirusTotalAnalysis
 
 function capitalizeFirstLetter(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+export function formatWeatherReport(forecast: any): EmbedBuilder {
+  const currentPeriod = forecast.properties.periods[0];
+  const nextPeriod = forecast.properties.periods[1];
+
+  // Determine embed color based on temperature
+  let color: number;
+  if (currentPeriod.temperature < 50) {
+    color = Colors.Blue; // Cold
+  } else if (currentPeriod.temperature < 70) {
+    color = Colors.Green; // Mild
+  } else if (currentPeriod.temperature < 85) {
+    color = Colors.Yellow; // Warm
+  } else {
+    color = Colors.Red; // Hot
+  }
+
+  // Create weather condition emoji
+  const getWeatherEmoji = (forecast: string): string => {
+    const lowercaseForecast = forecast.toLowerCase();
+    if (lowercaseForecast.includes('sun')) return '☀️';
+    if (lowercaseForecast.includes('cloud')) return '☁️';
+    if (lowercaseForecast.includes('rain')) return '🌧️';
+    if (lowercaseForecast.includes('snow')) return '❄️';
+    if (lowercaseForecast.includes('fog')) return '🌫️';
+    if (lowercaseForecast.includes('wind')) return '💨';
+    if (lowercaseForecast.includes('storm')) return '⛈️';
+    return '🌡️';
+  };
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(`San Francisco Weather Report ${getWeatherEmoji(currentPeriod.shortForecast)}`)
+    .setDescription(currentPeriod.detailedForecast)
+    .addFields(
+      { 
+        name: '🌡️ Temperature', 
+        value: `${currentPeriod.temperature}°${currentPeriod.temperatureUnit}`,
+        inline: true 
+      },
+      { 
+        name: '💨 Wind', 
+        value: `${currentPeriod.windSpeed} ${currentPeriod.windDirection}`,
+        inline: true 
+      },
+      { 
+        name: '⏰ Period', 
+        value: currentPeriod.name,
+        inline: true 
+      },
+      {
+        name: `📅 Next Period (${nextPeriod.name})`,
+        value: `${nextPeriod.temperature}°${nextPeriod.temperatureUnit} - ${nextPeriod.shortForecast}`,
+        inline: false
+      }
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Data from National Weather Service' });
+
+  return embed;
 } 
