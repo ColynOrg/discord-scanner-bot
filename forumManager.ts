@@ -24,6 +24,7 @@ export class ForumManager {
   private static readonly INACTIVITY_CHECK_DELAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
   private static readonly activeThreads = new Map<string, NodeJS.Timeout>();
   private static readonly inactivityWarnings = new Map<string, boolean>(); // Track which threads have warnings
+  private static readonly pendingClosures = new Map<string, number>(); // Track threads awaiting closure
 
   constructor(private client: Client) {
     this.checkInactiveThreads();
@@ -86,10 +87,10 @@ export class ForumManager {
         // Skip if thread is locked, already has a warning, or is marked as solved
         if (!thread.locked && 
             !ForumManager.inactivityWarnings.has(thread.id) && 
-            !thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-          const messages = await thread.messages.fetch({ limit: 10 }); // Fetch more messages to find non-bot ones
+            !thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID) &&
+            !ForumManager.pendingClosures.has(thread.id)) {
+          const messages = await thread.messages.fetch({ limit: 10 });
           
-          // Find the last non-bot message
           const lastNonBotMessage = messages.find(msg => !msg.author.bot);
           const lastThreadOwnerMessage = messages.find(msg => msg.author.id === thread.ownerId);
 
@@ -122,14 +123,23 @@ export class ForumManager {
       components: [row]
     });
 
-    // Add button collector
     const collector = message.createMessageComponentCollector({
       componentType: ComponentType.Button,
-      time: 24 * 60 * 60 * 1000 // 24 hour timeout
+      time: 24 * 60 * 60 * 1000
     });
 
     collector.on('collect', async (interaction: ButtonInteraction) => {
       if (interaction.customId === 'mark_solved') {
+        // Check if thread is already pending closure
+        if (ForumManager.pendingClosures.has(thread.id)) {
+          const closeTime = new Date(ForumManager.pendingClosures.get(thread.id)!);
+          await interaction.reply({
+            content: `This post is already marked as solved and will be closed ${time(closeTime, 'R')}.`,
+            ephemeral: true
+          });
+          return;
+        }
+
         // Check if user is thread owner or has the required role
         const hasRequiredRole = interaction.member?.roles instanceof GuildMemberRoleManager && 
           interaction.member.roles.cache.has('1022899638140928022');
@@ -143,13 +153,44 @@ export class ForumManager {
         }
 
         await this.markAsSolved(thread);
-        const closeTime = new Date(Date.now() + ForumManager.AUTO_CLOSE_DELAY);
+        const closeTime = Date.now() + ForumManager.AUTO_CLOSE_DELAY;
+        ForumManager.pendingClosures.set(thread.id, closeTime);
+        
         await interaction.reply({
-          content: `Post has been marked as solved and will be closed ${time(closeTime, 'R')}.`,
+          content: `Post has been marked as solved and will be closed ${time(new Date(closeTime), 'R')}.`,
           ephemeral: false
         });
       }
     });
+  }
+
+  private async markAsSolved(thread: ThreadChannel) {
+    // Add the solved tag if it's not already there
+    if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
+      const newTags = [...thread.appliedTags, ForumManager.SOLVED_TAG_ID];
+      await thread.setAppliedTags(newTags);
+    }
+
+    // Set up auto-close timer
+    const closeTimer = setTimeout(async () => {
+      try {
+        await thread.setLocked(true);
+        ForumManager.activeThreads.delete(thread.id);
+        ForumManager.pendingClosures.delete(thread.id);
+        await thread.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(Colors.Grey)
+              .setDescription('🔒 This thread has been automatically closed as it was marked as solved.')
+              .setTimestamp()
+          ]
+        });
+      } catch (error) {
+        console.error('Error closing thread:', error);
+      }
+    }, ForumManager.AUTO_CLOSE_DELAY);
+
+    ForumManager.activeThreads.set(thread.id, closeTimer);
   }
 
   public async handleSolvedCommand(interaction: ChatInputCommandInteraction) {
@@ -172,6 +213,16 @@ export class ForumManager {
       return;
     }
 
+    // Check if thread is already pending closure
+    if (ForumManager.pendingClosures.has(thread.id)) {
+      const closeTime = new Date(ForumManager.pendingClosures.get(thread.id)!);
+      await interaction.reply({
+        content: `This post is already marked as solved and will be closed ${time(closeTime, 'R')}.`,
+        ephemeral: true
+      });
+      return;
+    }
+
     // Check if user is thread owner or has the required role
     const hasRequiredRole = interaction.member?.roles instanceof GuildMemberRoleManager && 
       interaction.member.roles.cache.has('1022899638140928022');
@@ -185,14 +236,16 @@ export class ForumManager {
 
     await this.markAsSolved(thread);
     
-    const closeTime = new Date(Date.now() + ForumManager.AUTO_CLOSE_DELAY);
+    const closeTime = Date.now() + ForumManager.AUTO_CLOSE_DELAY;
+    ForumManager.pendingClosures.set(thread.id, closeTime);
+
     const embed = new EmbedBuilder()
       .setColor(Colors.Green)
       .setTitle('✅ Post Marked as Solved')
       .setDescription(`This post has been marked as solved by <@${interaction.user.id}>!\nUse \`/unsolved\` to remove this tag.`)
       .addFields({
         name: '🔒 Auto-close',
-        value: `This post will be closed ${time(closeTime, 'R')} (${time(closeTime, 'f')}).`
+        value: `This post will be closed ${time(new Date(closeTime), 'R')} (${time(new Date(closeTime), 'f')}).`
       })
       .setTimestamp();
 
@@ -233,12 +286,13 @@ export class ForumManager {
       return;
     }
 
-    // Clear any existing auto-close timer
+    // Clear any existing auto-close timer and pending closure
     const existingTimer = ForumManager.activeThreads.get(thread.id);
     if (existingTimer) {
       clearTimeout(existingTimer);
       ForumManager.activeThreads.delete(thread.id);
     }
+    ForumManager.pendingClosures.delete(thread.id);
 
     // Remove the solved tag
     const appliedTags = thread.appliedTags.filter(tag => tag !== ForumManager.SOLVED_TAG_ID);
@@ -254,38 +308,5 @@ export class ForumManager {
       embeds: [embed],
       ephemeral: false
     });
-  }
-
-  private async markAsSolved(thread: ThreadChannel) {
-    // Add the solved tag if it's not already applied
-    if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-      const newTags = [...thread.appliedTags, ForumManager.SOLVED_TAG_ID];
-      await thread.setAppliedTags(newTags);
-    }
-
-    // Clear any existing timer
-    const existingTimer = ForumManager.activeThreads.get(thread.id);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    // Set up auto-close timer
-    const timer = setTimeout(async () => {
-      try {
-        await thread.setLocked(true);
-        const embed = new EmbedBuilder()
-          .setColor(Colors.Grey)
-          .setTitle('🔒 Post Closed')
-          .setDescription('This post has been automatically closed.')
-          .setTimestamp();
-        
-        await thread.send({ embeds: [embed] });
-        ForumManager.activeThreads.delete(thread.id);
-      } catch (error) {
-        console.error('Error closing thread:', error);
-      }
-    }, ForumManager.AUTO_CLOSE_DELAY);
-
-    ForumManager.activeThreads.set(thread.id, timer);
   }
 } 
