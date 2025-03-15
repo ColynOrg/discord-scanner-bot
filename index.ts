@@ -77,7 +77,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else if (file) {
         await interaction.editReply('🔍 Downloading and submitting file for scanning...');
         try {
-          analysisId = await virusTotalService.scanFile(file.url);
+          // Use the absolute proxyURL or attachment URL
+          const fileUrl = file.proxyURL || file.url;
+          if (!fileUrl) {
+            throw new Error('Could not get file URL from attachment');
+          }
+          analysisId = await virusTotalService.scanFile(fileUrl);
         } catch (error) {
           console.error('File scan error:', error);
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
