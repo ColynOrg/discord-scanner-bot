@@ -66,7 +66,13 @@ export class VirusTotalService {
     try {
       // First, download the file
       console.log('Step 1: Downloading file...');
-      const fileResponse = await fetch(fileUrl);
+      const fileResponse = await fetch(fileUrl, {
+        headers: {
+          'User-Agent': 'DiscordBot (https://discord.js.org, 1.0.0)',
+          'Accept': '*/*'
+        }
+      });
+      
       if (!fileResponse.ok) {
         const error = `Failed to download file (Status ${fileResponse.status}): ${fileResponse.statusText}`;
         console.error(error);
@@ -111,7 +117,7 @@ export class VirusTotalService {
       const formData = new FormData();
       formData.append('file', fileBuffer, {
         filename: 'scan_file',
-        contentType: 'application/octet-stream'
+        contentType: fileResponse.headers.get('content-type') || 'application/octet-stream'
       });
       console.log('Form data created');
 
