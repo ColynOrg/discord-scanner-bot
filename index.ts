@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Events, CommandInteraction, EmbedBuilder, Colors, ChatInputCommandInteraction, REST, Routes, ButtonInteraction } from 'discord.js';
 import { config } from 'dotenv';
 import { VirusTotalService } from './virusTotalService';
-import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, getWeatherButtons, getBackButton } from './visualService';
+import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, formatWeatherAlerts, getWeatherButtons, getBackButton } from './visualService';
 import { commands } from './commands';
 import { ForumManager } from './forumManager';
 import { WeatherService } from './weatherService';
@@ -53,7 +53,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isButton()) {
     const buttonId = interaction.customId;
     
-    if (['hourly', 'extended', 'refresh', 'back'].includes(buttonId)) {
+    if (['hourly', 'extended', 'alerts', 'back'].includes(buttonId)) {
+      // Check if the user who clicked is the same as the user who ran the command
+      const message = interaction.message;
+      const originalUserId = message.interaction?.user.id;
+      
+      if (originalUserId !== interaction.user.id) {
+        await interaction.reply({ 
+          content: `Only the person who ran the command can use these buttons. Try running </weather:1350322316462002207> yourself!`,
+          ephemeral: true 
+        });
+        return;
+      }
+
       await interaction.deferUpdate();
       
       try {
@@ -70,14 +82,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.editReply({ embeds: [embed], components: [getBackButton()] });
             break;
           }
-          case 'refresh': {
-            const forecast = await weatherService.getSanFranciscoWeather();
-            const embed = formatWeatherReport(forecast);
-            // Keep the same button layout as the current view
-            const buttons = interaction.message.components[0].components[0].customId === 'back' 
-              ? getBackButton() 
-              : getWeatherButtons();
-            await interaction.editReply({ embeds: [embed], components: [buttons] });
+          case 'alerts': {
+            const alerts = await weatherService.getSanFranciscoAlerts();
+            const embed = formatWeatherAlerts(alerts);
+            await interaction.editReply({ embeds: [embed], components: [getBackButton()] });
             break;
           }
           case 'back': {
@@ -101,7 +109,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const command = interaction.commandName;
 
   if (command === 'scan') {
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
     
     try {
       const url = interaction.options.getString('url');
