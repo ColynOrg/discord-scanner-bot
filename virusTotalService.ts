@@ -1,5 +1,6 @@
 import fetch, { Response } from 'node-fetch';
 import { config } from './config';
+import FormData from 'form-data';
 
 export interface VirusTotalAnalysis {
   data: {
@@ -90,14 +91,18 @@ export class VirusTotalService {
 
       // Upload file
       const formData = new FormData();
-      formData.append('file', new Blob([fileBuffer]));
+      formData.append('file', fileBuffer, {
+        filename: 'scan_file',
+        contentType: 'application/octet-stream'
+      });
 
       const uploadResponse = await this.fetchWithTimeout(
         uploadUrl,
         {
           method: 'POST',
           headers: {
-            'x-apikey': this.apiKey
+            'x-apikey': this.apiKey,
+            ...formData.getHeaders()
           },
           body: formData
         }
@@ -110,6 +115,7 @@ export class VirusTotalService {
       const data = await uploadResponse.json();
       return data.data.id;
     } catch (error: unknown) {
+      console.error('Error in scanFile:', error);
       if (error instanceof Error) {
         throw error;
       }
