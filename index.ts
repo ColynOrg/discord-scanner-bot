@@ -1,10 +1,10 @@
 import { Client, GatewayIntentBits, Events, CommandInteraction, EmbedBuilder, Colors, ChatInputCommandInteraction, REST, Routes, ButtonInteraction } from 'discord.js';
 import { config } from 'dotenv';
-import { VirusTotalService } from './virusTotalService';
-import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, formatWeatherAlerts, getWeatherButtons, getBackButton } from './visualService';
-import { commands } from './commands';
 import { ForumManager } from './forumManager';
 import { WeatherService } from './weatherService';
+import { URLScannerService } from './urlScannerService';
+import { createQuickPreview, formatVirusTotalReport, formatWeatherReport, formatHourlyForecast, formatExtendedForecast, formatWeatherAlerts, getWeatherButtons, getBackButton } from './visualService';
+import { commands } from './commands';
 
 // Load environment variables
 config();
@@ -19,13 +19,12 @@ const client = new Client({
 });
 
 // Initialize services
-const virusTotalService = new VirusTotalService();
 const weatherService = new WeatherService();
 let forumManager: ForumManager;
 
 // When the client is ready, run this code (only once)
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`Logged in as ${readyClient.user.tag}`);
+  console.log(`Ready! Logged in as ${readyClient.user.tag}`);
   
   // Initialize forum manager after client is ready
   forumManager = new ForumManager(readyClient);
@@ -113,37 +112,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      const virusTotalService = new VirusTotalService();
-      await interaction.editReply('🔍 Submitting URL for scanning...');
-      const analysisId = await virusTotalService.scanUrl(url);
-
-      await interaction.editReply('⏳ Analyzing... This may take a few minutes.');
-      const results = await virusTotalService.getAnalysisResults(analysisId);
-
-      const stats = results.data.attributes.stats;
-      const totalScans = stats.harmless + stats.malicious + stats.suspicious + stats.undetected + stats.timeout;
-      const detectionRate = ((stats.malicious + stats.suspicious) / totalScans * 100).toFixed(1);
-
-      const threatLevel = stats.malicious + stats.suspicious > 0 ? '⚠️ Threats detected' : '✅ No threats detected';
-      const color = stats.malicious + stats.suspicious > 0 ? 0xFF0000 : 0x00FF00;
-
-      const embed = new EmbedBuilder()
-        .setTitle('VirusTotal Scan Results')
-        .setColor(color)
-        .setDescription(`Scan results for URL: ${url}`)
-        .addFields(
-          { name: 'Status', value: threatLevel, inline: false },
-          { name: 'Detection Rate', value: `${detectionRate}% (${stats.malicious + stats.suspicious}/${totalScans})`, inline: true },
-          { name: 'Breakdown', value: [
-            `Malicious: ${stats.malicious}`,
-            `Suspicious: ${stats.suspicious}`,
-            `Clean: ${stats.harmless}`,
-            `Undetected: ${stats.undetected}`,
-            `Timeout: ${stats.timeout}`
-          ].join('\n'), inline: true }
-        )
-        .setTimestamp()
-        .setFooter({ text: 'Powered by VirusTotal' });
+      const urlScanner = new URLScannerService();
+      await interaction.editReply('🔍 Scanning URL...');
+      
+      const results = await urlScanner.scanUrl(url);
+      const embed = urlScanner.createEmbed(results);
 
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
