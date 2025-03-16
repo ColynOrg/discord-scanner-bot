@@ -25,7 +25,6 @@ interface IPQSResponse {
     iso: string;
   };
   category: string;
-  domain_trust: string;
   technologies: string[];
   page_title: string;
 }
@@ -96,7 +95,6 @@ export class URLScannerService {
           name: '🎯 Risk Assessment',
           value: [
             `**Risk Level:** ${level} (Score: ${result.risk_score}/100)`,
-            `**Domain Trust:** ${result.domain_trust.charAt(0).toUpperCase() + result.domain_trust.slice(1)}`,
             `**Domain Age:** ${domainAge}`,
             `**Domain Rank:** ${result.domain_rank > 0 ? `#${result.domain_rank.toLocaleString()}` : 'Unranked'}`
           ].join('\n'),
