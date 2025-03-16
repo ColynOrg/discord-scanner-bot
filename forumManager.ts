@@ -68,7 +68,7 @@ export class ForumManager {
 
       // Check if message indicates the issue is solved
       const content = message.content.toLowerCase();
-      if (content.includes('thanks') || content.includes('thank you') || content.includes('it works')) {
+      if (content.includes('thx') || content.includes('thanks') || content.includes('ty') || content.includes('thank you') || content.includes('it works')) {
         // Don't suggest if the thread is already marked as solved
         if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
           await message.reply('-# <:tree_corner:1349121251733667921> Command suggestion: </solved:1350200875062136844>');
