@@ -249,8 +249,10 @@ export class ForumManager {
           const updatedEmbed = EmbedBuilder.from(originalEmbed)
             .setColor(Colors.Red)
             .setFields([
-              { name: '✅ Post Marked as Solved', value: originalEmbed.fields[0].value },
-              { name: '🔒 Auto-close', value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` }
+              { 
+                name: '✅ Post Marked as Solved and is Now Closed', 
+                value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
+              }
             ])
             .setTimestamp();
 
