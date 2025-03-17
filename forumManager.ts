@@ -16,6 +16,7 @@ import {
   Events,
   GuildMemberRoleManager
 } from 'discord.js';
+import Database from 'better-sqlite3';
 
 export class ForumManager {
   private static readonly FORUM_CHANNEL_ID = '1349920447957045329';
@@ -27,9 +28,61 @@ export class ForumManager {
   private static readonly inactivityWarnings = new Map<string, boolean>(); // Track which threads have warnings
   private static readonly pendingClosures = new Map<string, number>(); // Track threads awaiting closure
 
+  private db: Database.Database;
+  private readonly autoCloseDelay = ForumManager.AUTO_CLOSE_DELAY;
+
   constructor(private client: Client) {
+    this.db = new Database('forum.db');
     this.checkInactiveThreads();
     this.setupForumListeners();
+  }
+
+  private async getDb(): Promise<Database.Database> {
+    return this.db;
+  }
+
+  private async findSolvedMessage(thread: ThreadChannel): Promise<Message | undefined> {
+    const messages = await thread.messages.fetch({ limit: 10 });
+    return messages.find(msg => 
+      msg.author.id === this.client.user?.id && 
+      msg.embeds[0]?.title === 'Post Marked as Solved'
+    );
+  }
+
+  private scheduleThreadClose(thread: ThreadChannel, scheduledTime: Date) {
+    const delay = scheduledTime.getTime() - Date.now();
+    if (delay <= 0) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        await thread.setLocked(true);
+        ForumManager.activeThreads.delete(thread.id);
+        ForumManager.pendingClosures.delete(thread.id);
+      } catch (error) {
+        console.error('Error closing thread:', error);
+      }
+    }, delay);
+
+    ForumManager.activeThreads.set(thread.id, timer);
+  }
+
+  private async updateWaitingReplyTag(thread: ThreadChannel, message: Message | boolean) {
+    const currentTags = thread.appliedTags;
+    const isOP = typeof message === 'boolean' ? false : message.author.id === thread.ownerId;
+    const isSolved = currentTags.includes(ForumManager.SOLVED_TAG_ID);
+    
+    // If OP posted and thread isn't solved, add the waiting for reply tag
+    if (isOP && !isSolved) {
+      if (!currentTags.includes(ForumManager.WAITING_REPLY_TAG_ID)) {
+        const newTags = [...currentTags, ForumManager.WAITING_REPLY_TAG_ID];
+        await thread.setAppliedTags(newTags);
+      }
+    }
+    // If not OP or thread is solved, remove the waiting for reply tag
+    else if (currentTags.includes(ForumManager.WAITING_REPLY_TAG_ID)) {
+      const newTags = currentTags.filter(tag => tag !== ForumManager.WAITING_REPLY_TAG_ID);
+      await thread.setAppliedTags(newTags);
+    }
   }
 
   private setupForumListeners() {
@@ -204,66 +257,101 @@ export class ForumManager {
     });
   }
 
-  private async updateWaitingReplyTag(thread: ThreadChannel, message: Message) {
-    const currentTags = thread.appliedTags;
-    const isOP = message.author.id === thread.ownerId;
-    const isSolved = currentTags.includes(ForumManager.SOLVED_TAG_ID);
-    
-    // If OP posted and thread isn't solved, add the waiting for reply tag
-    if (isOP && !isSolved) {
-      if (!currentTags.includes(ForumManager.WAITING_REPLY_TAG_ID)) {
-        const newTags = [...currentTags, ForumManager.WAITING_REPLY_TAG_ID];
-        await thread.setAppliedTags(newTags);
+  private async markAsSolved(thread: ThreadChannel) {
+    try {
+      // Update thread name
+      const newName = thread.name.replace(/\[unsolved\]/i, '[solved]');
+      await thread.setName(newName);
+
+      // Update the solved message embed
+      const solvedMessage = await this.findSolvedMessage(thread);
+      if (solvedMessage && solvedMessage.embeds[0]) {
+        const originalEmbed = solvedMessage.embeds[0];
+        const updatedEmbed = EmbedBuilder.from(originalEmbed)
+          .setColor(Colors.Red)
+          .setFields([
+            { 
+              name: 'Post Marked as Solved and is Now Closed', 
+              value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
+            }
+          ])
+          .setTimestamp();
+
+        await solvedMessage.edit({ embeds: [updatedEmbed] });
       }
-    }
-    // If not OP or thread is solved, remove the waiting for reply tag
-    else if (currentTags.includes(ForumManager.WAITING_REPLY_TAG_ID)) {
-      const newTags = currentTags.filter(tag => tag !== ForumManager.WAITING_REPLY_TAG_ID);
-      await thread.setAppliedTags(newTags);
+
+      // Remove waiting for reply tag if present
+      await this.updateWaitingReplyTag(thread, false);
+
+      // Lock the thread
+      await thread.setLocked(true);
+
+      // Store the scheduled time in the database
+      const scheduledTime = new Date(Date.now() + this.autoCloseDelay);
+      await this.storeScheduledClose(thread.id, scheduledTime);
+
+      // Schedule the auto-close
+      this.scheduleThreadClose(thread, scheduledTime);
+
+      // Log the action
+      console.log(`Thread ${thread.name} marked as solved`);
+    } catch (error) {
+      console.error('Error marking thread as solved:', error);
     }
   }
 
-  private async markAsSolved(thread: ThreadChannel) {
-    // Add the solved tag if it's not already there
-    if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-      const newTags = [...thread.appliedTags.filter(tag => tag !== ForumManager.WAITING_REPLY_TAG_ID), ForumManager.SOLVED_TAG_ID];
-      await thread.setAppliedTags(newTags);
+  private async storeScheduledClose(threadId: string, scheduledTime: Date) {
+    try {
+      const db = await this.getDb();
+      await db.run(
+        'INSERT OR REPLACE INTO scheduled_closes (thread_id, scheduled_time) VALUES (?, ?)',
+        [threadId, scheduledTime.toISOString()]
+      );
+    } catch (error) {
+      console.error('Error storing scheduled close:', error);
     }
+  }
 
-    // Set up auto-close timer
-    const closeTimer = setTimeout(async () => {
-      try {
-        await thread.setLocked(true);
-        ForumManager.activeThreads.delete(thread.id);
-        ForumManager.pendingClosures.delete(thread.id);
-        
-        // Get the last 10 messages to find our embed
-        const messages = await thread.messages.fetch({ limit: 10 });
-        const solvedMessage = messages.find(msg => 
-          msg.author.id === this.client.user?.id && 
-          msg.embeds[0]?.title === 'Post Marked as Solved'
-        );
-
-        if (solvedMessage && solvedMessage.embeds[0]) {
-          const originalEmbed = solvedMessage.embeds[0];
-          const updatedEmbed = EmbedBuilder.from(originalEmbed)
-            .setColor(Colors.Red)
-            .setFields([
-              { 
-                name: '🔒 Post is Solved and has been Closed', 
-                value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
-              }
-            ])
-            .setTimestamp();
-
-          await solvedMessage.edit({ embeds: [updatedEmbed] });
+  private async restoreScheduledCloses() {
+    try {
+      const db = await this.getDb();
+      const rows = await db.all('SELECT * FROM scheduled_closes WHERE scheduled_time > datetime("now")');
+      
+      for (const row of rows) {
+        const thread = await this.client.channels.fetch(row.thread_id) as ThreadChannel;
+        if (thread && !thread.locked) {
+          const scheduledTime = new Date(row.scheduled_time);
+          this.scheduleThreadClose(thread, scheduledTime);
         }
-      } catch (error) {
-        console.error('Error closing thread:', error);
       }
-    }, ForumManager.AUTO_CLOSE_DELAY);
+    } catch (error) {
+      console.error('Error restoring scheduled closes:', error);
+    }
+  }
 
-    ForumManager.activeThreads.set(thread.id, closeTimer);
+  private async initializeDatabase() {
+    try {
+      const db = await this.getDb();
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS scheduled_closes (
+          thread_id TEXT PRIMARY KEY,
+          scheduled_time TEXT NOT NULL
+        )
+      `);
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Error initializing database:', error);
+    }
+  }
+
+  public async initialize() {
+    try {
+      await this.initializeDatabase();
+      await this.restoreScheduledCloses();
+      console.log('Forum manager initialized successfully');
+    } catch (error) {
+      console.error('Error initializing forum manager:', error);
+    }
   }
 
   public async handleSolvedCommand(interaction: ChatInputCommandInteraction) {
