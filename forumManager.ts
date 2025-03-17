@@ -241,7 +241,7 @@ export class ForumManager {
         const messages = await thread.messages.fetch({ limit: 10 });
         const solvedMessage = messages.find(msg => 
           msg.author.id === this.client.user?.id && 
-          msg.embeds[0]?.title === '✅ Post Marked as Solved'
+          msg.embeds[0]?.title === 'Post Marked as Solved'
         );
 
         if (solvedMessage && solvedMessage.embeds[0]) {
@@ -250,7 +250,7 @@ export class ForumManager {
             .setColor(Colors.Red)
             .setFields([
               { 
-                name: '🔒 Post Marked as Solved and is Closed', 
+                name: '🔒 Post is Solved and has been Closed', 
                 value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
               }
             ])
@@ -314,10 +314,10 @@ export class ForumManager {
 
     const embed = new EmbedBuilder()
       .setColor(Colors.Green)
-      .setTitle('✅ Post Marked as Solved')
+      .setTitle('Post Marked as Solved')
       .setDescription(`This post has been marked as solved by <@${interaction.user.id}>!\nUse </unsolved:1350224524825727007> to remove this tag.`)
       .addFields({
-        name: '🔒 Auto-close',
+        name: '🔒 Post awaiting automatic closure',
         value: `This post will be closed ${time(new Date(closeTime), 'R')} (${time(new Date(closeTime), 'f')}).`
       })
       .setTimestamp();
