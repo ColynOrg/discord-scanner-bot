@@ -116,9 +116,11 @@ export class ForumManager {
   }
 
   private async sendInactivityWarning(thread: ThreadChannel) {
+    const autoSolveTime = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours from now
+    
     const embed = new EmbedBuilder()
       .setColor(Colors.Yellow)
-      .setDescription(`Hey <@${thread.ownerId}>, it seems like your last message was sent more than 24 hours ago.\nIf we don't hear back from you we'll assume the issue is resolved and mark your post as solved.`);
+      .setDescription(`Hey <@${thread.ownerId}>, it seems like your last message was sent more than 24 hours ago.\nIf we don't hear back from you by ${time(autoSolveTime, 'f')} (${time(autoSolveTime, 'R')}), we'll assume the issue is resolved and mark your post as solved.`);
 
     const solveButton = new ButtonBuilder()
       .setCustomId('mark_solved')
@@ -132,6 +134,25 @@ export class ForumManager {
       embeds: [embed],
       components: [row]
     });
+
+    // Set up auto-solve timer
+    setTimeout(async () => {
+      try {
+        // Check if the thread still exists and isn't already solved
+        const updatedThread = await thread.fetch();
+        if (!updatedThread.locked && !updatedThread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
+          await this.markAsSolved(updatedThread);
+          const closeTime = Date.now() + ForumManager.AUTO_CLOSE_DELAY;
+          ForumManager.pendingClosures.set(updatedThread.id, closeTime);
+          
+          await message.reply({
+            content: `No response received. This post has been automatically marked as solved and will be closed ${time(new Date(closeTime), 'R')}.`
+          });
+        }
+      } catch (error) {
+        console.error('Error in auto-solve timer:', error);
+      }
+    }, 12 * 60 * 60 * 1000); // 12 hours
 
     const collector = message.createMessageComponentCollector({
       componentType: ComponentType.Button,
