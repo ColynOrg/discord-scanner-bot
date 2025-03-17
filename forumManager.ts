@@ -18,6 +18,11 @@ import {
 } from 'discord.js';
 import Database from 'better-sqlite3';
 
+interface ScheduledClose {
+  thread_id: string;
+  scheduled_time: string;
+}
+
 export class ForumManager {
   private static readonly FORUM_CHANNEL_ID = '1349920447957045329';
   private static readonly SOLVED_TAG_ID = '1349920578987102250';
@@ -303,10 +308,8 @@ export class ForumManager {
   private async storeScheduledClose(threadId: string, scheduledTime: Date) {
     try {
       const db = await this.getDb();
-      await db.run(
-        'INSERT OR REPLACE INTO scheduled_closes (thread_id, scheduled_time) VALUES (?, ?)',
-        [threadId, scheduledTime.toISOString()]
-      );
+      const stmt = db.prepare('INSERT OR REPLACE INTO scheduled_closes (thread_id, scheduled_time) VALUES (?, ?)');
+      stmt.run(threadId, scheduledTime.toISOString());
     } catch (error) {
       console.error('Error storing scheduled close:', error);
     }
@@ -315,7 +318,8 @@ export class ForumManager {
   private async restoreScheduledCloses() {
     try {
       const db = await this.getDb();
-      const rows = await db.all('SELECT * FROM scheduled_closes WHERE scheduled_time > datetime("now")');
+      const stmt = db.prepare('SELECT * FROM scheduled_closes WHERE scheduled_time > datetime("now")');
+      const rows = stmt.all() as ScheduledClose[];
       
       for (const row of rows) {
         const thread = await this.client.channels.fetch(row.thread_id) as ThreadChannel;
@@ -332,12 +336,13 @@ export class ForumManager {
   private async initializeDatabase() {
     try {
       const db = await this.getDb();
-      await db.run(`
+      const stmt = db.prepare(`
         CREATE TABLE IF NOT EXISTS scheduled_closes (
           thread_id TEXT PRIMARY KEY,
           scheduled_time TEXT NOT NULL
         )
       `);
+      stmt.run();
       console.log('Database initialized successfully');
     } catch (error) {
       console.error('Error initializing database:', error);
