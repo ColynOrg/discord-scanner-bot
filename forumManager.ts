@@ -220,6 +220,10 @@ export class ForumManager {
           const originalEmbed = solvedMessage.embeds[0];
           const updatedEmbed = EmbedBuilder.from(originalEmbed)
             .setColor(Colors.Red)
+            .setFields([
+              { name: '✅ Post Marked as Solved', value: originalEmbed.fields[0].value },
+              { name: '🔒 Auto-close', value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` }
+            ])
             .setTimestamp();
 
           await solvedMessage.edit({ embeds: [updatedEmbed] });
