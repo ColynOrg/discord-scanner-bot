@@ -346,6 +346,37 @@ export class ForumManager {
       return;
     }
 
+    // If thread is locked, find who marked it as solved and when it was closed
+    if (thread.locked) {
+      const messages = await thread.messages.fetch({ limit: 50 });
+      const solvedMessage = messages.find(msg => 
+        msg.author.id === this.client.user?.id && 
+        msg.embeds[0]?.title === '✅ Post Marked as Solved'
+      );
+
+      if (solvedMessage && solvedMessage.embeds[0]) {
+        const embed = solvedMessage.embeds[0];
+        const description = embed.description;
+        // Extract user ID from the description (format: "...by <@userId>!...")
+        const userId = description?.match(/<@(\d+)>/)?.[1];
+        
+        if (userId) {
+          await interaction.reply({
+            content: `<@${userId}> has already marked this post as solved and it was closed ${time(new Date(solvedMessage.editedTimestamp || solvedMessage.createdTimestamp), 'R')}.`,
+            ephemeral: true
+          });
+          return;
+        }
+      }
+      
+      // Fallback if we can't find the specific message
+      await interaction.reply({
+        content: 'This post has already been marked as solved and closed.',
+        ephemeral: true
+      });
+      return;
+    }
+
     // Check if user is thread owner or has the required role
     const hasRequiredRole = interaction.member?.roles instanceof GuildMemberRoleManager && 
       interaction.member.roles.cache.has('1022899638140928022');
