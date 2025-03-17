@@ -68,13 +68,23 @@ export class ForumManager {
 
       // Check if message indicates the issue is solved
       const content = message.content.toLowerCase();
-      if (content.includes('thx') || content.includes('thanks') || content.includes('ty') || content.includes('thank you') || content.includes('it works')) {
+      if (this.isThankYouMessage(content)) {
         // Don't suggest if the thread is already marked as solved
         if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
           await message.reply('-# <:tree_corner:1349121251733667921> Command suggestion: </solved:1350200875062136844>');
         }
       }
     });
+  }
+
+  private isThankYouMessage(content: string): boolean {
+    const thankYouPatterns = [
+      /\b(?:thank|thanks|thx|thankyou|ty)\b/i,  // Word boundaries to ensure we match whole words only
+      /(?:^|\s)ty(?:\s|$)/i,  // 'ty' with space or start/end of string
+      /(?:^|\s)thx(?:\s|$)/i  // 'thx' with space or start/end of string
+    ];
+    
+    return thankYouPatterns.some(pattern => pattern.test(content));
   }
 
   private async checkInactiveThreads() {
