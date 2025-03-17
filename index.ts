@@ -104,7 +104,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // Check if command is being used in a server
   if (!interaction.guildId) {
     await interaction.reply({ 
-      content: '❌ This command can only be used in a server!',
+      content: '❌ This command can only be used in the NCW Server!',
       ephemeral: true 
     });
     return;
