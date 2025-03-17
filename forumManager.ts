@@ -250,7 +250,7 @@ export class ForumManager {
             .setColor(Colors.Red)
             .setFields([
               { 
-                name: '✅ Post Marked as Solved and is Now Closed', 
+                name: '🔒 Post Marked as Solved and is Closed', 
                 value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
               }
             ])
