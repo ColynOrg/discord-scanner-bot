@@ -20,6 +20,7 @@ import {
 export class ForumManager {
   private static readonly FORUM_CHANNEL_ID = '1349920447957045329';
   private static readonly SOLVED_TAG_ID = '1349920578987102250';
+  private static readonly WAITING_REPLY_TAG_ID = '1351244087642292295';
   private static readonly AUTO_CLOSE_DELAY = 60 * 60 * 1000; // 1 hour in milliseconds
   private static readonly INACTIVITY_CHECK_DELAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
   private static readonly activeThreads = new Map<string, NodeJS.Timeout>();
@@ -50,6 +51,11 @@ export class ForumManager {
 
           await thread.send({ embeds: [embed] });
         }
+
+        // Add waiting for reply tag for the initial post
+        if (firstMessage) {
+          await this.updateWaitingReplyTag(thread, firstMessage);
+        }
       }
     });
 
@@ -60,18 +66,21 @@ export class ForumManager {
       const thread = message.channel as ThreadChannel;
       if (thread.parentId !== ForumManager.FORUM_CHANNEL_ID) return;
 
+      // Update waiting for reply tag
+      await this.updateWaitingReplyTag(thread, message);
+
       // Check if message is from thread owner
-      if (message.author.id !== thread.ownerId) return;
+      if (message.author.id === thread.ownerId) {
+        // Reset inactivity warning when thread owner sends a message
+        ForumManager.inactivityWarnings.delete(thread.id);
 
-      // Reset inactivity warning when thread owner sends a message
-      ForumManager.inactivityWarnings.delete(thread.id);
-
-      // Check if message indicates the issue is solved
-      const content = message.content.toLowerCase();
-      if (this.isThankYouMessage(content)) {
-        // Don't suggest if the thread is already marked as solved
-        if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-          await message.reply('-# <:tree_corner:1349121251733667921> Command suggestion: </solved:1350200875062136844>');
+        // Check if message indicates the issue is solved
+        const content = message.content.toLowerCase();
+        if (this.isThankYouMessage(content)) {
+          // Don't suggest if the thread is already marked as solved
+          if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
+            await message.reply('-# <:tree_corner:1349121251733667921> Command suggestion: </solved:1350200875062136844>');
+          }
         }
       }
     });
@@ -195,10 +204,29 @@ export class ForumManager {
     });
   }
 
+  private async updateWaitingReplyTag(thread: ThreadChannel, message: Message) {
+    const currentTags = thread.appliedTags;
+    const isOP = message.author.id === thread.ownerId;
+    const isSolved = currentTags.includes(ForumManager.SOLVED_TAG_ID);
+    
+    // If OP posted and thread isn't solved, add the waiting for reply tag
+    if (isOP && !isSolved) {
+      if (!currentTags.includes(ForumManager.WAITING_REPLY_TAG_ID)) {
+        const newTags = [...currentTags, ForumManager.WAITING_REPLY_TAG_ID];
+        await thread.setAppliedTags(newTags);
+      }
+    }
+    // If not OP or thread is solved, remove the waiting for reply tag
+    else if (currentTags.includes(ForumManager.WAITING_REPLY_TAG_ID)) {
+      const newTags = currentTags.filter(tag => tag !== ForumManager.WAITING_REPLY_TAG_ID);
+      await thread.setAppliedTags(newTags);
+    }
+  }
+
   private async markAsSolved(thread: ThreadChannel) {
     // Add the solved tag if it's not already there
     if (!thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-      const newTags = [...thread.appliedTags, ForumManager.SOLVED_TAG_ID];
+      const newTags = [...thread.appliedTags.filter(tag => tag !== ForumManager.WAITING_REPLY_TAG_ID), ForumManager.SOLVED_TAG_ID];
       await thread.setAppliedTags(newTags);
     }
 
