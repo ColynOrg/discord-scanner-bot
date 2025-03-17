@@ -12,11 +12,14 @@ export const commands = [
     ),
   new SlashCommandBuilder()
     .setName('weather')
-    .setDescription('Get the current weather for San Francisco'),
+    .setDescription('Get current weather information for San Francisco'),
   new SlashCommandBuilder()
     .setName('solved')
     .setDescription('Mark a forum post as solved'),
   new SlashCommandBuilder()
     .setName('unsolved')
-    .setDescription('Remove the solved status from a forum post')
+    .setDescription('Remove the solved tag from a forum post'),
+  new SlashCommandBuilder()
+    .setName('help')
+    .setDescription('Show information about all available commands')
 ].map(command => command.toJSON()); 

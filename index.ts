@@ -101,6 +101,56 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   const command = interaction.commandName;
 
+  // Check if command is being used in a server
+  if (!interaction.guildId) {
+    await interaction.reply({ 
+      content: '❌ This command can only be used in a server!',
+      ephemeral: true 
+    });
+    return;
+  }
+
+  if (command === 'help') {
+    await interaction.reply({
+      embeds: [{
+        color: 0x0099FF,
+        title: '🤖 Bot Commands',
+        description: 'Here are all the available commands:',
+        fields: [
+          {
+            name: '🔍 `/scan`',
+            value: 'Scan a URL for potential threats and security risks.',
+            inline: false
+          },
+          {
+            name: '🌤️ `/weather`',
+            value: 'Get current weather information for San Francisco with interactive buttons for hourly and extended forecasts.',
+            inline: false
+          },
+          {
+            name: '✅ `/solved`',
+            value: 'Mark a forum post as solved. This will add a "Solved" tag and schedule the post for auto-closure.',
+            inline: false
+          },
+          {
+            name: '❌ `/unsolved`',
+            value: 'Remove the "Solved" tag from a forum post.',
+            inline: false
+          },
+          {
+            name: '❓ `/help`',
+            value: 'Show this help message with information about all available commands.',
+            inline: false
+          }
+        ],
+        footer: {
+          text: 'All commands are server-only and some may require specific permissions.'
+        }
+      }]
+    });
+    return;
+  }
+
   if (command === 'scan') {
     await interaction.deferReply({ ephemeral: true });
     
