@@ -187,14 +187,22 @@ export class ForumManager {
         await thread.setLocked(true);
         ForumManager.activeThreads.delete(thread.id);
         ForumManager.pendingClosures.delete(thread.id);
-        await thread.send({
-          embeds: [
-            new EmbedBuilder()
-              .setColor(Colors.Grey)
-              .setDescription('🔒 This thread has been automatically closed as it was marked as solved.')
-              .setTimestamp()
-          ]
-        });
+        
+        // Get the last 10 messages to find our embed
+        const messages = await thread.messages.fetch({ limit: 10 });
+        const solvedMessage = messages.find(msg => 
+          msg.author.id === this.client.user?.id && 
+          msg.embeds[0]?.title === '✅ Post Marked as Solved'
+        );
+
+        if (solvedMessage && solvedMessage.embeds[0]) {
+          const originalEmbed = solvedMessage.embeds[0];
+          const updatedEmbed = EmbedBuilder.from(originalEmbed)
+            .setColor(Colors.Red)
+            .setTimestamp();
+
+          await solvedMessage.edit({ embeds: [updatedEmbed] });
+        }
       } catch (error) {
         console.error('Error closing thread:', error);
       }
