@@ -184,7 +184,7 @@ export class ForumManager {
 
       const activeThreads = await forumChannel.threads.fetchActive();
       for (const [_, thread] of activeThreads.threads) {
-        // Skip if thread is locked, already has a warning, or is marked as solved
+        // Skip if thread is locked, already has a warning, is marked as solved, or is pending closure
         if (!thread.locked && 
             !ForumManager.inactivityWarnings.has(thread.id) && 
             !thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID) &&
@@ -197,8 +197,17 @@ export class ForumManager {
           if (lastNonBotMessage && lastThreadOwnerMessage &&
               lastNonBotMessage.author.id !== thread.ownerId &&
               Date.now() - lastThreadOwnerMessage.createdTimestamp >= ForumManager.INACTIVITY_CHECK_DELAY) {
-            await this.sendInactivityWarning(thread);
-            ForumManager.inactivityWarnings.set(thread.id, true);
+            // Check if there's already a warning message with a button
+            const existingWarning = messages.find(msg => 
+              msg.author.id === this.client.user?.id && 
+              msg.embeds[0]?.description?.includes('Hey') &&
+              msg.components?.length > 0
+            );
+
+            if (!existingWarning) {
+              await this.sendInactivityWarning(thread);
+              ForumManager.inactivityWarnings.set(thread.id, true);
+            }
           }
         }
       }
