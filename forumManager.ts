@@ -570,11 +570,41 @@ export class ForumManager {
 
   private async cleanup() {
     try {
-      // Clear all active timers
-      for (const [threadId, timer] of ForumManager.activeThreads) {
-        clearTimeout(timer);
+      // Wait for any imminent closures (within next 10 seconds)
+      const imminentClosures = Array.from(ForumManager.activeThreads.entries())
+        .filter(([threadId, timer]) => {
+          const closeTime = ForumManager.pendingClosures.get(threadId);
+          return closeTime && (closeTime - Date.now() <= 10000); // 10 seconds
+        });
+
+      if (imminentClosures.length > 0) {
+        console.log(`Waiting for ${imminentClosures.length} imminent closures to complete...`);
+        await Promise.all(imminentClosures.map(async ([threadId]) => {
+          const closeTime = ForumManager.pendingClosures.get(threadId);
+          if (closeTime) {
+            const timeLeft = closeTime - Date.now();
+            if (timeLeft > 0) {
+              await new Promise(resolve => setTimeout(resolve, timeLeft));
+            }
+          }
+        }));
       }
+
+      // Clear remaining timers that aren't about to close
+      for (const [threadId, timer] of ForumManager.activeThreads) {
+        const closeTime = ForumManager.pendingClosures.get(threadId);
+        if (!closeTime || (closeTime - Date.now() > 10000)) {
+          clearTimeout(timer);
+          // Store the remaining time in the database so it can be restored
+          const timeLeft = closeTime ? closeTime - Date.now() : 0;
+          if (timeLeft > 0) {
+            await this.storeScheduledClose(threadId, new Date(Date.now() + timeLeft));
+          }
+        }
+      }
+
       ForumManager.activeThreads.clear();
+      ForumManager.pendingClosures.clear();
 
       // Close database connection
       if (this.db) {
