@@ -513,7 +513,7 @@ export class ForumManager {
     });
   }
 
-  private async handleUnsolvedCommand(interaction: ChatInputCommandInteraction) {
+  public async handleUnsolvedCommand(interaction: ChatInputCommandInteraction) {
     try {
       const thread = interaction.channel as ThreadChannel;
       if (!thread || !thread.isThread()) {
