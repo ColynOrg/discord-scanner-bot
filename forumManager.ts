@@ -40,6 +40,10 @@ export class ForumManager {
     this.db = new Database('forum.db');
     this.checkInactiveThreads();
     this.setupForumListeners();
+
+    // Handle graceful shutdown
+    process.on('SIGINT', () => this.cleanup());
+    process.on('SIGTERM', () => this.cleanup());
   }
 
   private async getDb(): Promise<Database.Database> {
@@ -322,11 +326,21 @@ export class ForumManager {
   }
 
   private async storeScheduledClose(threadId: string, scheduledTime: Date) {
+    const db = await this.getDb();
     try {
-      const db = await this.getDb();
-      const stmt = db.prepare('INSERT OR REPLACE INTO scheduled_closes (thread_id, scheduled_time) VALUES (?, ?)');
-      stmt.run(threadId, scheduledTime.toISOString());
+      db.prepare('BEGIN').run();
+
+      // Delete any existing entry first
+      const deleteStmt = db.prepare('DELETE FROM scheduled_closes WHERE thread_id = ?');
+      deleteStmt.run(threadId);
+
+      // Insert new entry
+      const insertStmt = db.prepare('INSERT INTO scheduled_closes (thread_id, scheduled_time) VALUES (?, ?)');
+      insertStmt.run(threadId, scheduledTime.toISOString());
+
+      db.prepare('COMMIT').run();
     } catch (error) {
+      db.prepare('ROLLBACK').run();
       console.error('Error storing scheduled close:', error);
     }
   }
@@ -350,25 +364,56 @@ export class ForumManager {
   }
 
   private async initializeDatabase() {
+    const db = await this.getDb();
     try {
-      const db = await this.getDb();
+      db.prepare('BEGIN').run();
+
       const stmt = db.prepare(`
         CREATE TABLE IF NOT EXISTS scheduled_closes (
           thread_id TEXT PRIMARY KEY,
-          scheduled_time TEXT NOT NULL
+          scheduled_time TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
       `);
       stmt.run();
+
+      // Add index for scheduled_time for faster queries
+      const indexStmt = db.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_scheduled_time 
+        ON scheduled_closes(scheduled_time)
+      `);
+      indexStmt.run();
+
+      db.prepare('COMMIT').run();
       console.log('Database initialized successfully');
     } catch (error) {
+      db.prepare('ROLLBACK').run();
       console.error('Error initializing database:', error);
+    }
+  }
+
+  private async cleanupDatabase() {
+    try {
+      const db = await this.getDb();
+      const stmt = db.prepare('DELETE FROM scheduled_closes WHERE scheduled_time < datetime("now", "-1 day")');
+      stmt.run();
+      console.log('Database cleanup completed');
+    } catch (error) {
+      console.error('Error cleaning up database:', error);
     }
   }
 
   public async initialize() {
     try {
       await this.initializeDatabase();
+      await this.cleanupDatabase(); // Clean up old entries
       await this.restoreScheduledCloses();
+      
+      // Set up periodic database cleanup
+      setInterval(() => {
+        this.cleanupDatabase();
+      }, 24 * 60 * 60 * 1000); // Run cleanup daily
+
       console.log('Forum manager initialized successfully');
     } catch (error) {
       console.error('Error initializing forum manager:', error);
@@ -521,5 +566,24 @@ export class ForumManager {
       embeds: [embed],
       ephemeral: false
     });
+  }
+
+  private async cleanup() {
+    try {
+      // Clear all active timers
+      for (const [threadId, timer] of ForumManager.activeThreads) {
+        clearTimeout(timer);
+      }
+      ForumManager.activeThreads.clear();
+
+      // Close database connection
+      if (this.db) {
+        this.db.close();
+      }
+
+      console.log('Forum manager cleaned up successfully');
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+    }
   }
 } 
