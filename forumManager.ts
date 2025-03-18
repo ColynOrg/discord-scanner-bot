@@ -64,10 +64,20 @@ export class ForumManager {
 
     const timer = setTimeout(async () => {
       try {
+        // Check if thread still exists
+        try {
+          await thread.fetch();
+        } catch (error) {
+          console.log(`Thread ${thread.id} was deleted before closure`);
+          ForumManager.activeThreads.delete(thread.id);
+          ForumManager.pendingClosures.delete(thread.id);
+          return;
+        }
+
         // Lock the thread when the timer expires
         await thread.setLocked(true);
         
-        // Update the embed to show it's now closed
+        // Try to find and update the solved message embed
         const solvedMessage = await this.findSolvedMessage(thread);
         if (solvedMessage && solvedMessage.embeds[0]) {
           const originalEmbed = solvedMessage.embeds[0];
@@ -82,12 +92,24 @@ export class ForumManager {
             .setTimestamp();
 
           await solvedMessage.edit({ embeds: [updatedEmbed] });
+        } else {
+          // Create a new embed if we can't find the original
+          const newEmbed = new EmbedBuilder()
+            .setColor(Colors.Red)
+            .setTitle('Post Marked as Solved and is Now Closed')
+            .setDescription(`This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).`)
+            .setTimestamp();
+
+          await thread.send({ embeds: [newEmbed] });
         }
 
         ForumManager.activeThreads.delete(thread.id);
         ForumManager.pendingClosures.delete(thread.id);
       } catch (error) {
         console.error('Error closing thread:', error);
+        // If we get an error, try to clean up the maps anyway
+        ForumManager.activeThreads.delete(thread.id);
+        ForumManager.pendingClosures.delete(thread.id);
       }
     }, delay);
 
