@@ -482,90 +482,113 @@ export class ForumManager {
     });
   }
 
-  public async handleUnsolvedCommand(interaction: ChatInputCommandInteraction) {
-    if (!interaction.channel?.isThread()) {
-      await interaction.reply({
-        content: 'This command can only be used in forum posts!',
-        ephemeral: true
-      });
-      return;
-    }
-
-    const thread = interaction.channel as ThreadChannel;
-    const forumChannel = thread.parent as ForumChannel;
-
-    if (forumChannel.id !== ForumManager.FORUM_CHANNEL_ID) {
-      await interaction.reply({
-        content: 'This command can only be used in the help forum!',
-        ephemeral: true
-      });
-      return;
-    }
-
-    // If thread is locked, find who marked it as solved and when it was closed
-    if (thread.locked) {
-      const messages = await thread.messages.fetch({ limit: 50 });
-      const solvedMessage = messages.find(msg => 
-        msg.author.id === this.client.user?.id && 
-        msg.embeds[0]?.title === '✅ Post Marked as Solved'
-      );
-
-      if (solvedMessage && solvedMessage.embeds[0]) {
-        const embed = solvedMessage.embeds[0];
-        const description = embed.description;
-        // Extract user ID from the description (format: "...by <@userId>!...")
-        const userId = description?.match(/<@(\d+)>/)?.[1];
-        
-        if (userId) {
-          await interaction.reply({
-            content: `<@${userId}> has already marked this post as solved and it was closed ${time(new Date(solvedMessage.editedTimestamp || solvedMessage.createdTimestamp), 'R')}.`,
-            ephemeral: true
-          });
-          return;
-        }
+  private async handleUnsolvedCommand(interaction: ChatInputCommandInteraction) {
+    try {
+      const thread = interaction.channel as ThreadChannel;
+      if (!thread || !thread.isThread()) {
+        await interaction.reply({ 
+          content: 'This command can only be used in forum threads.', 
+          ephemeral: true 
+        });
+        return;
       }
-      
-      // Fallback if we can't find the specific message
-      await interaction.reply({
-        content: 'This post has already been marked as solved and closed.',
-        ephemeral: true
+
+      // Check if the thread is locked
+      if (thread.locked) {
+        try {
+          // Get the last 50 messages to find who marked it as solved
+          const messages = await thread.messages.fetch({ limit: 50 });
+          const solvedMessage = messages.find(msg => 
+            msg.author.id === this.client.user?.id && 
+            msg.embeds[0]?.title === 'Post Marked as Solved'
+          );
+
+          if (solvedMessage && solvedMessage.embeds[0]) {
+            const description = solvedMessage.embeds[0].description || '';
+            const userId = description.match(/marked as solved by <@(\d+)>/)?.[1];
+            
+            if (userId) {
+              await interaction.reply({ 
+                content: `<@${userId}> marked this post as solved and it was closed ${time(new Date(solvedMessage.createdTimestamp), 'R')} (${time(new Date(solvedMessage.createdTimestamp), 'f')}).`, 
+                ephemeral: true 
+              });
+            } else {
+              await interaction.reply({ 
+                content: `This post was marked as solved and closed ${time(new Date(solvedMessage.createdTimestamp), 'R')} (${time(new Date(solvedMessage.createdTimestamp), 'f')}).`, 
+                ephemeral: true 
+              });
+            }
+          } else {
+            await interaction.reply({ 
+              content: 'This post was previously marked as solved and closed.', 
+              ephemeral: true 
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching solved message:', error);
+          await interaction.reply({ 
+            content: 'This post was previously marked as solved and closed.', 
+            ephemeral: true 
+          });
+        }
+        return;
+      }
+
+      // Clear any pending closures
+      const timer = ForumManager.activeThreads.get(thread.id);
+      if (timer) {
+        clearTimeout(timer);
+        ForumManager.activeThreads.delete(thread.id);
+        ForumManager.pendingClosures.delete(thread.id);
+      }
+
+      // Remove from database if exists
+      try {
+        const db = await this.getDb();
+        const stmt = db.prepare('DELETE FROM scheduled_closes WHERE thread_id = ?');
+        stmt.run(thread.id);
+      } catch (error) {
+        console.error('Error removing scheduled close from database:', error);
+      }
+
+      // Update thread name
+      const newName = thread.name.replace(/\[solved\]/i, '[unsolved]');
+      await thread.setName(newName);
+
+      // Update the solved message embed
+      const solvedMessage = await this.findSolvedMessage(thread);
+      if (solvedMessage && solvedMessage.embeds[0]) {
+        const originalEmbed = solvedMessage.embeds[0];
+        const updatedEmbed = EmbedBuilder.from(originalEmbed)
+          .setColor(Colors.Yellow)
+          .setFields([
+            { 
+              name: 'Post Marked as Unsolved', 
+              value: `This post has been marked as unsolved by <@${interaction.user.id}>.\nUse \`/solved\` to mark this post as solved.` 
+            }
+          ])
+          .setTimestamp();
+
+        await solvedMessage.edit({ embeds: [updatedEmbed] });
+      }
+
+      // Remove solved tag if present
+      if (thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
+        const newTags = thread.appliedTags.filter(tag => tag !== ForumManager.SOLVED_TAG_ID);
+        await thread.setAppliedTags(newTags);
+      }
+
+      await interaction.reply({ 
+        content: 'Post marked as unsolved. Use `/solved` to mark it as solved again.', 
+        ephemeral: true 
       });
-      return;
-    }
-
-    // Check if user is thread owner or has the required role
-    const hasRequiredRole = interaction.member?.roles instanceof GuildMemberRoleManager && 
-      interaction.member.roles.cache.has('1022899638140928022');
-    if (thread.ownerId !== interaction.user.id && !hasRequiredRole) {
-      await interaction.reply({
-        content: 'Only the original poster or moderators can remove the solved status!',
-        ephemeral: true
+    } catch (error) {
+      console.error('Error handling unsolved command:', error);
+      await interaction.reply({ 
+        content: 'An error occurred while marking the post as unsolved.', 
+        ephemeral: true 
       });
-      return;
     }
-
-    // Clear any existing auto-close timer and pending closure
-    const existingTimer = ForumManager.activeThreads.get(thread.id);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      ForumManager.activeThreads.delete(thread.id);
-    }
-    ForumManager.pendingClosures.delete(thread.id);
-
-    // Remove the solved tag
-    const appliedTags = thread.appliedTags.filter(tag => tag !== ForumManager.SOLVED_TAG_ID);
-    await thread.setAppliedTags(appliedTags);
-
-    const embed = new EmbedBuilder()
-      .setColor(Colors.Blue)
-      .setTitle('🔄 Solved Status Removed')
-      .setDescription(`The solved tag has been removed from this post by <@${interaction.user.id}>.`)
-      .setTimestamp();
-
-    await interaction.reply({
-      embeds: [embed],
-      ephemeral: false
-    });
   }
 
   private async cleanup() {
