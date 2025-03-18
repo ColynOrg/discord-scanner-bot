@@ -60,7 +60,26 @@ export class ForumManager {
 
     const timer = setTimeout(async () => {
       try {
+        // Lock the thread when the timer expires
         await thread.setLocked(true);
+        
+        // Update the embed to show it's now closed
+        const solvedMessage = await this.findSolvedMessage(thread);
+        if (solvedMessage && solvedMessage.embeds[0]) {
+          const originalEmbed = solvedMessage.embeds[0];
+          const updatedEmbed = EmbedBuilder.from(originalEmbed)
+            .setColor(Colors.Red)
+            .setFields([
+              { 
+                name: 'Post Marked as Solved and is Now Closed', 
+                value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
+              }
+            ])
+            .setTimestamp();
+
+          await solvedMessage.edit({ embeds: [updatedEmbed] });
+        }
+
         ForumManager.activeThreads.delete(thread.id);
         ForumManager.pendingClosures.delete(thread.id);
       } catch (error) {
@@ -273,11 +292,11 @@ export class ForumManager {
       if (solvedMessage && solvedMessage.embeds[0]) {
         const originalEmbed = solvedMessage.embeds[0];
         const updatedEmbed = EmbedBuilder.from(originalEmbed)
-          .setColor(Colors.Red)
+          .setColor(Colors.Green)  // Change to green since it's not locked yet
           .setFields([
             { 
-              name: 'Post Marked as Solved and is Now Closed', 
-              value: `This post was closed ${time(new Date(), 'R')} (${time(new Date(), 'f')}).` 
+              name: 'Post Marked as Solved', 
+              value: `This post has been marked as solved.\nUse \`/unsolved\` to remove this tag.` 
             }
           ])
           .setTimestamp();
@@ -287,9 +306,6 @@ export class ForumManager {
 
       // Remove waiting for reply tag if present
       await this.updateWaitingReplyTag(thread, false);
-
-      // Lock the thread
-      await thread.setLocked(true);
 
       // Store the scheduled time in the database
       const scheduledTime = new Date(Date.now() + this.autoCloseDelay);
