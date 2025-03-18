@@ -451,7 +451,7 @@ export class ForumManager {
     }
   }
 
-  private async handleSolvedCommand(interaction: ChatInputCommandInteraction) {
+  public async handleSolvedCommand(interaction: ChatInputCommandInteraction) {
     try {
       const thread = interaction.channel as ThreadChannel;
       
