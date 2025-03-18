@@ -451,121 +451,107 @@ export class ForumManager {
     }
   }
 
-  public async handleSolvedCommand(interaction: ChatInputCommandInteraction) {
-    if (!interaction.channel?.isThread()) {
-      await interaction.reply({
-        content: 'This command can only be used in forum posts!',
-        ephemeral: true
-      });
-      return;
-    }
-
-    const thread = interaction.channel as ThreadChannel;
-    const forumChannel = thread.parent as ForumChannel;
-
-    if (forumChannel.id !== ForumManager.FORUM_CHANNEL_ID) {
-      await interaction.reply({
-        content: 'This command can only be used in the help forum!',
-        ephemeral: true
-      });
-      return;
-    }
-
-    // Check if thread is already pending closure
-    if (ForumManager.pendingClosures.has(thread.id)) {
-      const closeTime = new Date(ForumManager.pendingClosures.get(thread.id)!);
-      await interaction.reply({
-        content: `This post is already marked as solved and will be closed ${time(closeTime, 'R')}.`,
-        ephemeral: true
-      });
-      return;
-    }
-
-    // Check if user is thread owner or has the required role
-    const hasRequiredRole = interaction.member?.roles instanceof GuildMemberRoleManager && 
-      interaction.member.roles.cache.has('1022899638140928022');
-    if (thread.ownerId !== interaction.user.id && !hasRequiredRole) {
-      await interaction.reply({
-        content: 'Only the original poster or moderators can mark a post as solved!',
-        ephemeral: true
-      });
-      return;
-    }
-
-    await this.markAsSolved(thread);
-    
-    const closeTime = Date.now() + ForumManager.AUTO_CLOSE_DELAY;
-    ForumManager.pendingClosures.set(thread.id, closeTime);
-
-    const embed = new EmbedBuilder()
-      .setColor(Colors.Green)
-      .setTitle('Post Marked as Solved')
-      .setDescription(`This post has been marked as solved by <@${interaction.user.id}>!\nUse </unsolved:1350224524825727007> to remove this tag.`)
-      .addFields({
-        name: '🔒 Post awaiting automatic closure',
-        value: `This post will be closed ${time(new Date(closeTime), 'R')} (${time(new Date(closeTime), 'f')}).`
-      })
-      .setTimestamp();
-
-    await interaction.reply({
-      embeds: [embed],
-      ephemeral: false
-    });
-  }
-
-  public async handleUnsolvedCommand(interaction: ChatInputCommandInteraction) {
+  private async handleSolvedCommand(interaction: ChatInputCommandInteraction) {
     try {
       const thread = interaction.channel as ThreadChannel;
-      if (!thread || !thread.isThread()) {
+      
+      // Check if thread is already solved
+      if (thread.name.startsWith('[solved]')) {
         await interaction.reply({ 
-          content: 'This command can only be used in forum threads.', 
+          content: 'This post is already marked as solved.', 
           ephemeral: true 
         });
         return;
       }
 
-      // Check if the thread is locked
+      // Check if thread is locked
       if (thread.locked) {
-        try {
-          // Get the last 50 messages to find who marked it as solved
-          const messages = await thread.messages.fetch({ limit: 50 });
-          const solvedMessage = messages.find(msg => 
-            msg.author.id === this.client.user?.id && 
-            msg.embeds[0]?.title === 'Post Marked as Solved'
-          );
-
-          if (solvedMessage && solvedMessage.embeds[0]) {
-            const description = solvedMessage.embeds[0].description || '';
-            const userId = description.match(/marked as solved by <@(\d+)>/)?.[1];
-            
-            if (userId) {
-              await interaction.reply({ 
-                content: `<@${userId}> marked this post as solved and it was closed ${time(new Date(solvedMessage.createdTimestamp), 'R')} (${time(new Date(solvedMessage.createdTimestamp), 'f')}).`, 
-                ephemeral: true 
-              });
-            } else {
-              await interaction.reply({ 
-                content: `This post was marked as solved and closed ${time(new Date(solvedMessage.createdTimestamp), 'R')} (${time(new Date(solvedMessage.createdTimestamp), 'f')}).`, 
-                ephemeral: true 
-              });
-            }
-          } else {
-            await interaction.reply({ 
-              content: 'This post was previously marked as solved and closed.', 
-              ephemeral: true 
-            });
-          }
-        } catch (error) {
-          console.error('Error fetching solved message:', error);
-          await interaction.reply({ 
-            content: 'This post was previously marked as solved and closed.', 
-            ephemeral: true 
-          });
-        }
+        await interaction.reply({ 
+          content: 'This post is locked and cannot be marked as solved.', 
+          ephemeral: true 
+        });
         return;
       }
 
-      // Clear any pending closures
+      // Create new solved embed
+      const solvedEmbed = new EmbedBuilder()
+        .setColor(Colors.Green)
+        .setTitle('Post Marked as Solved')
+        .setDescription(`This post was marked as solved by ${interaction.user} ${time(new Date(), 'R')} (${time(new Date(), 'f')}).`)
+        .setTimestamp();
+
+      // Send new solved message
+      const solvedMessage = await thread.send({ embeds: [solvedEmbed] });
+
+      // Update thread name
+      const newName = thread.name.replace('[unsolved]', '[solved]');
+      await thread.setName(newName);
+
+      // Update database
+      const stmt = this.db.prepare('UPDATE forum_posts SET solved = 1, solved_by = ?, solved_at = ? WHERE thread_id = ?');
+      stmt.run(interaction.user.id, new Date().toISOString(), thread.id);
+
+      // Schedule thread closure
+      const scheduledTime = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours from now
+      this.scheduleThreadClose(thread, scheduledTime);
+
+      // Remove waiting for reply tag if present
+      await this.updateWaitingReplyTag(thread, false);
+
+      await interaction.reply({ 
+        content: 'Post marked as solved. This thread will be closed in 12 hours.', 
+        ephemeral: true 
+      });
+    } catch (error) {
+      console.error('Error handling solved command:', error);
+      await interaction.reply({ 
+        content: 'An error occurred while marking the post as solved.', 
+        ephemeral: true 
+      });
+    }
+  }
+
+  public async handleUnsolvedCommand(interaction: ChatInputCommandInteraction) {
+    try {
+      const thread = interaction.channel as ThreadChannel;
+      
+      // Check if thread is already unsolved
+      if (thread.name.startsWith('[unsolved]')) {
+        await interaction.reply({ 
+          content: 'This post is already marked as unsolved.', 
+          ephemeral: true 
+        });
+        return;
+      }
+
+      // Check if thread is locked
+      if (thread.locked) {
+        await interaction.reply({ 
+          content: 'This post is locked and cannot be marked as unsolved.', 
+          ephemeral: true 
+        });
+        return;
+      }
+
+      // Create new unsolved embed
+      const unsolvedEmbed = new EmbedBuilder()
+        .setColor(Colors.Red)
+        .setTitle('Post Marked as Unsolved')
+        .setDescription(`This post was marked as unsolved by ${interaction.user} ${time(new Date(), 'R')} (${time(new Date(), 'f')}).`)
+        .setTimestamp();
+
+      // Send new unsolved message
+      await thread.send({ embeds: [unsolvedEmbed] });
+
+      // Update thread name
+      const newName = thread.name.replace('[solved]', '[unsolved]');
+      await thread.setName(newName);
+
+      // Update database
+      const stmt = this.db.prepare('UPDATE forum_posts SET solved = 0, solved_by = NULL, solved_at = NULL WHERE thread_id = ?');
+      stmt.run(thread.id);
+
+      // Cancel any pending closure
       const timer = ForumManager.activeThreads.get(thread.id);
       if (timer) {
         clearTimeout(timer);
@@ -573,44 +559,11 @@ export class ForumManager {
         ForumManager.pendingClosures.delete(thread.id);
       }
 
-      // Remove from database if exists
-      try {
-        const db = await this.getDb();
-        const stmt = db.prepare('DELETE FROM scheduled_closes WHERE thread_id = ?');
-        stmt.run(thread.id);
-      } catch (error) {
-        console.error('Error removing scheduled close from database:', error);
-      }
-
-      // Update thread name
-      const newName = thread.name.replace(/\[solved\]/i, '[unsolved]');
-      await thread.setName(newName);
-
-      // Update the solved message embed
-      const solvedMessage = await this.findSolvedMessage(thread);
-      if (solvedMessage && solvedMessage.embeds[0]) {
-        const originalEmbed = solvedMessage.embeds[0];
-        const updatedEmbed = EmbedBuilder.from(originalEmbed)
-          .setColor(Colors.Yellow)
-          .setFields([
-            { 
-              name: 'Post Marked as Unsolved', 
-              value: `This post has been marked as unsolved by <@${interaction.user.id}>.\nUse \`/solved\` to mark this post as solved.` 
-            }
-          ])
-          .setTimestamp();
-
-        await solvedMessage.edit({ embeds: [updatedEmbed] });
-      }
-
-      // Remove solved tag if present
-      if (thread.appliedTags.includes(ForumManager.SOLVED_TAG_ID)) {
-        const newTags = thread.appliedTags.filter(tag => tag !== ForumManager.SOLVED_TAG_ID);
-        await thread.setAppliedTags(newTags);
-      }
+      // Add waiting for reply tag
+      await this.updateWaitingReplyTag(thread, true);
 
       await interaction.reply({ 
-        content: 'Post marked as unsolved. Use `/solved` to mark it as solved again.', 
+        content: 'Post marked as unsolved.', 
         ephemeral: true 
       });
     } catch (error) {
